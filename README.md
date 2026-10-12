@@ -1,0 +1,36 @@
+﻿# Schedule Assistant
+
+Ứng dụng hỗ trợ lập lịch giảng dạy. Yêu cầu nghiệp vụ: `document/requirement.md`.
+
+## Chạy frontend React
+
+Yêu cầu Node.js 20.19+ hoặc 22.12+.
+
+```powershell
+cd frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+Mở địa chỉ Vite hiển thị trên terminal, mặc định http://127.0.0.1:5173.
+Trên macOS/Linux dùng `npm` thay cho `npm.cmd`.
+
+```powershell
+npm.cmd run build
+npm.cmd run preview
+```
+
+## Chức năng
+
+- Lịch tuần, chuyển tuần, chế độ danh sách, tìm kiếm và lọc theo lớp/lịch chính thức/dạy bù.
+- Chi tiết buổi giảng, lớp học phần, lịch trong ngày và thông báo.
+- Tạo yêu cầu xin nghỉ, đề xuất dạy bù, theo dõi trạng thái chờ duyệt.
+- Khai báo thời gian khả dụng, cập nhật thông tin hiển thị.
+- Xuất lịch tuần dưới dạng .ics; nhập với múi giờ Việt Nam.
+- Giao diện responsive, điều hướng di động, modal hỗ trợ bàn phím.
+
+## Phạm vi
+
+Frontend dùng React, Vite và Lucide. Buổi dạy là dữ liệu mẫu trong `frontend/src/data.js`, lặp theo tuần để thử giao diện. Yêu cầu, khung giờ khả dụng, thông tin cá nhân và trạng thái đã đọc lưu bằng localStorage trên trình duyệt hiện tại. Font Be Vietnam Pro tải từ Google Fonts, có font hệ thống dự phòng.
+
+Chưa tích hợp backend, đăng nhập, phân quyền hay luồng duyệt của điều phối viên. Yêu cầu chưa thay đổi lịch chính thức. Khi nối REST API, backend phải thực hiện xác thực, phân quyền, kiểm tra xung đột, lưu trữ tập trung và công bố lịch theo tài liệu yêu cầu. localStorage không phải nguồn dữ liệu chính thức.
