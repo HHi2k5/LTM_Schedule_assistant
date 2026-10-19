@@ -17,4 +17,7 @@ export const dayNames = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Th
 export function weekDates(offset = 0) { return dayNames.map((_, i) => new Date(2026, 9, 5 + offset * 7 + i, 12)); }
 export function shortDate(date) { return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }); }
 export function fullDate(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
-export function time(hour) { return `${String(hour).padStart(2, '0')}:00`; }
+export function time(hour) {
+  const minutes = Math.round(hour * 60);
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
