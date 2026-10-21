@@ -15,4 +15,6 @@ public interface TeacherRepository extends JpaRepository<Teacher, String> {
            "LEFT JOIN FETCH s.courses " +
            "WHERE t.teacherId = :teacherId")
     Optional<Teacher> findTeacherWithFullSchedule(@Param("teacherId") String teacherId);
+    Optional<Teacher> findByUsername(String username);
+    boolean existsByUsername(String username);
 }

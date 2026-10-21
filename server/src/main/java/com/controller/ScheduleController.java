@@ -26,6 +26,7 @@ public class ScheduleController {
     private final ScheduleService scheduleService;
     private final AutoScheduleService autoScheduleService;
     private final ExcelScheduleService excelScheduleService;
+    private final com.service.AuthService authService;
 
     // 1. Giảng viên up file Excel lịch trường (nếu up lại cùng schoolId sẽ tự đè lịch mới)
     @PostMapping(value = "/upload-excel-teacher", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -85,5 +86,22 @@ public class ScheduleController {
             @PathVariable int weekIndex,
             @RequestParam(defaultValue = "GV01") String teacherId) {
         return ResponseEntity.ok(scheduleService.getWeeklySchedule(teacherId, weekIndex));
+    }
+        @PostMapping("/auth/register")
+    public ResponseEntity<?> register(@RequestBody com.dto.AuthRequest request) {
+        try {
+            return ResponseEntity.ok(authService.register(request));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/auth/login")
+    public ResponseEntity<?> login(@RequestBody com.dto.AuthRequest request) {
+        try {
+            return ResponseEntity.ok(authService.login(request));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
+        }
     }
 }

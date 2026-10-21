@@ -12,7 +12,6 @@ import java.io.InputStream;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
@@ -26,7 +25,7 @@ public class ExcelScheduleService {
     private final ScheduleService scheduleService;
     private final AutoScheduleService autoScheduleService;
 
-    // Regex bắt định dạng ngày: dd/MM/yy hoặc dd/MM/yyyy (VD: "14/08/26 đến 20/11/26")
+    // Regex bắt định dạng ngày: dd/MM/yy hoặc dd/MM/yyyy
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{2,4})");
 
     /**
@@ -52,34 +51,35 @@ public class ExcelScheduleService {
             Sheet sheet = workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
 
-            // Nếu client không truyền semesterStartDate, tự động quét cột "Thời gian học" để tìm Thứ 2 của tuần sớm nhất
             if (resolvedSemesterStart == null) {
                 resolvedSemesterStart = detectEarliestMonday(sheet, formatter);
             }
 
-            // Biến lưu tạm để xử lý trường hợp gộp ô (Merged Cells) ở các dòng phụ
             String lastCourseCode = "";
             String lastCourseName = "";
             String lastGroup = "01";
 
-            // Duyệt từ dòng 1 (bỏ qua dòng tiêu đề 0)
+            // Duyệt từ dòng 1 (bỏ qua tiêu đề)
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
 
-                // Kiểm tra cột Thứ (cột 4) và Tiết bắt đầu (cột 5) xem có phải dòng chứa ca học không
+                // Đọc các cột quan trọng
+                String courseCodeCell = getCellText(row, 0, formatter);
+                String courseNameCell = getCellText(row, 1, formatter);
+                String groupCell = getCellText(row, 2, formatter);
                 String dayStr = getCellText(row, 4, formatter);
                 String startPeriodStr = getCellText(row, 5, formatter);
-                if (dayStr.isBlank() || startPeriodStr.isBlank()) continue;
 
-                // Đọc Mã MH, Tên MH, Nhóm tổ (nếu trống do gộp ô thì lấy từ dòng ngay trên)
-                String currentCode = getCellText(row, 0, formatter);
-                String currentName = getCellText(row, 1, formatter);
-                String currentGroup = getCellText(row, 2, formatter);
+                // Nếu dòng trống hoàn toàn hoặc không có thông tin tiết học thì bỏ qua
+                if (dayStr.isBlank() || startPeriodStr.isBlank()) {
+                    // Nếu dòng này trống nhưng có tên môn thì có thể là dòng ngắt, reset tạm hoặc tiếp tục
+                    continue;
+                }
 
-                if (!currentCode.isBlank()) lastCourseCode = currentCode;
-                if (!currentName.isBlank()) lastCourseName = currentName;
-                if (!currentGroup.isBlank()) lastGroup = currentGroup;
+                if (!courseCodeCell.isBlank()) lastCourseCode = courseCodeCell;
+                if (!courseNameCell.isBlank()) lastCourseName = courseNameCell;
+                if (!groupCell.isBlank()) lastGroup = groupCell;
 
                 if (lastCourseName.isBlank()) continue;
 
@@ -87,15 +87,15 @@ public class ExcelScheduleService {
                 int startPeriod = parseIntSafe(startPeriodStr, 1);
                 int numPeriods = parseIntSafe(getCellText(row, 6, formatter), 2);
                 String room = getCellText(row, 7, formatter);
-                String studyTimeRange = getCellText(row, 8, formatter); // VD: "14/08/26 đến 20/11/26"
+                String studyTimeRange = getCellText(row, 8, formatter);
 
-                // Chuyển chuỗi "14/08/26 đến 20/11/26" thành chuỗi tuần "123456789012345-"
-                String weekSchedule = convertDateRangeToWeekString(studyTimeRange, resolvedSemesterStart, 20);
+                // Chuyển khoảng thời gian thành chuỗi tuần chuẩn (16 tuần)
+                String weekSchedule = convertDateRangeToWeekString(studyTimeRange, resolvedSemesterStart, 16);
 
                 String displayCourseName = lastCourseName + " (Nhóm " + lastGroup + ")";
 
                 courses.add(TeachingCourseDTO.builder()
-                        .courseCode(lastCourseCode)
+                        .courseCode(!lastCourseCode.isBlank() ? lastCourseCode : "MH_AUTO")
                         .courseName(displayCourseName)
                         .room(room)
                         .dayOfWeek(dayOfWeek)
@@ -106,7 +106,6 @@ public class ExcelScheduleService {
             }
         }
 
-        // Khung giờ 12 tiết (vì trên hình có Tiết 10 và Tiết 12)
         SchoolConfigDTO schoolConfig = SchoolConfigDTO.builder()
                 .schoolId(schoolId)
                 .schoolName(schoolName)
@@ -125,10 +124,6 @@ public class ExcelScheduleService {
         scheduleService.saveOrUpdateSchoolSchedule(uploadRequest);
     }
 
-    /**
-     * 2. Xử lý khi Nhà trường upload file Excel (Cột 1: Môn học, Cột 2: Giảng viên)
-     * Phòng học cố định 35 phòng (Tầng 1 -> 7, mỗi tầng 5 phòng)
-     */
     @Transactional
     public AutoScheduleResponse autoScheduleFromExcel(
             MultipartFile file,
@@ -201,20 +196,19 @@ public class ExcelScheduleService {
     }
 
     /**
-     * Chuyển chuỗi "14/08/26 đến 20/11/26" thành chuỗi tuần dựa vào ngày Thứ 2 đầu kỳ
+     * Chuyển khoảng thời gian thành chuỗi tuần an toàn (Mặc định 16 tuần chuẩn)
      */
     private String convertDateRangeToWeekString(String rangeText, LocalDate semesterMonday, int maxWeeks) {
         if (rangeText == null || rangeText.isBlank()) {
-            return "1234567890123456";
+            return "1111111111111111"; // Học tất cả các tuần nếu trống
         }
-        // Nếu người dùng truyền sẵn chuỗi tuần kiểu "--3456789..."
         if (!rangeText.contains("/")) {
             return rangeText.trim();
         }
 
         List<LocalDate> dates = extractDates(rangeText);
         if (dates.size() < 2) {
-            return "1234567890123456";
+            return "1111111111111111";
         }
 
         LocalDate startDate = dates.get(0);
@@ -229,17 +223,14 @@ public class ExcelScheduleService {
         StringBuilder sb = new StringBuilder();
         for (int w = 1; w <= maxWeeks; w++) {
             if (w >= startWeek && w <= endWeek) {
-                sb.append(w % 10);
+                sb.append('1'); // Đánh dấu tuần có học
             } else {
-                sb.append('-');
+                sb.append('-'); // Không học
             }
         }
         return sb.toString();
     }
 
-    /**
-     * Tự động tìm ngày Thứ 2 của tuần sớm nhất trong cột "Thời gian học:" (Cột 8)
-     */
     private LocalDate detectEarliestMonday(Sheet sheet, DataFormatter formatter) {
         LocalDate minDate = null;
         for (int i = 1; i <= sheet.getLastRowNum(); i++) {
@@ -256,7 +247,7 @@ public class ExcelScheduleService {
         if (minDate != null) {
             return minDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         }
-        return LocalDate.of(2026, 8, 10); // Mặc định Thứ 2 tuần 1 (10/08/2026, khớp với tuần có ngày 14/08/26)
+        return LocalDate.of(2026, 8, 10);
     }
 
     private List<LocalDate> extractDates(String text) {
@@ -279,7 +270,7 @@ public class ExcelScheduleService {
             int month = Integer.parseInt(parts[1]);
             int year = Integer.parseInt(parts[2]);
             if (year < 100) {
-                year += 2000; // "26" -> 2026
+                year += 2000;
             }
             return LocalDate.of(year, month, day);
         } catch (Exception e) {
