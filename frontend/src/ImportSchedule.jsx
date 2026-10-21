@@ -104,17 +104,13 @@ export default function ImportSchedule({ teacherId, semesterStart, onImported })
       formData.append('colorCode', metadata.colorCode);
       formData.append('semesterStartDate', metadata.semesterStartDate);
 
-      const response = await fetch('http://localhost:8080/api/schedule/upload-excel-teacher', {
+      const result = await api('/upload-excel-teacher', {
         method: 'POST',
         body: formData,
       });
 
-      const body = await response.text();
-      let result;
-      try { result = JSON.parse(body); } catch { result = { message: body }; }
-
-      if (!response.ok || result.status !== 'SUCCESS') {
-        throw new Error(result.message || `Lỗi lưu lịch (HTTP ${response.status})`);
+      if (result.status !== 'SUCCESS') {
+        throw new Error(result.message || 'Máy chủ chưa xác nhận lưu lịch thành công.');
       }
 
       onImported(preview);

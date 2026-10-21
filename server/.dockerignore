@@ -1,0 +1,7 @@
+target
+bin
+.git
+.env*
+*.log
+src/main/resources/application-dev.yml
+src/main/resources/application-prod.yaml

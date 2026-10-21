@@ -2,6 +2,10 @@
 
 Ứng dụng nhập và tổng hợp lịch giảng dạy có sẵn từ Excel hoặc JSON. Yêu cầu nghiệp vụ: `document/requirement.md`.
 
+## Chạy toàn bộ bằng Docker Desktop
+
+Mở Docker Desktop rồi chạy `docker compose up -d --build` tại thư mục gốc. Truy cập http://localhost:8088. Xem [hướng dẫn Docker](DOCKER.md) để cấu hình, xem log và chia sẻ qua ngrok.
+
 ## Chạy frontend React
 
 Yêu cầu Node.js 20.19+ hoặc 22.12+.
