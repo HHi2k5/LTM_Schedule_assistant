@@ -1,0 +1,34 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+  devtools:
+    add-properties: false
+  datasource:
+    url: jdbc:mysql://localhost:3306/teacher_schedule_db?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
+    username: root
+    password: password
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+openapi:
+  service:
+    api-docs: backend-service
+    server: http://localhost:8080
+    title: Backend service
+    version: 1.0.0
+
+# Generate HMAC Authentication Code: https://www.devglan.com/online-tools/hmac-sha256-online
+jwt:
+  expiryMinutes: 60
+  expiryDay: 14
+  accessKey: Y0bUnOe4b6zjB8x3YytJm1lqjzPqZxPjQWCUhNQ9UjA=
+  refreshKey: X4Q9xAqN1J8kN7+qv93y7Jt3RHfF0a8w2uKgp1qY8mY=

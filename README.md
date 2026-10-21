@@ -1,6 +1,10 @@
 ﻿# Schedule Assistant
 
-Ứng dụng hỗ trợ lập lịch giảng dạy. Yêu cầu nghiệp vụ: `document/requirement.md`.
+Ứng dụng nhập và tổng hợp lịch giảng dạy có sẵn từ Excel hoặc JSON. Yêu cầu nghiệp vụ: `document/requirement.md`.
+
+## Chạy toàn bộ bằng Docker Desktop
+
+Mở Docker Desktop rồi chạy `docker compose up -d --build` tại thư mục gốc. Truy cập http://localhost:8088. Xem [hướng dẫn Docker](DOCKER.md) để cấu hình, xem log và chia sẻ qua ngrok.
 
 ## Chạy frontend React
 
@@ -22,15 +26,15 @@ npm.cmd run preview
 
 ## Chức năng
 
-- Lịch tuần, chuyển tuần, chế độ danh sách, tìm kiếm và lọc theo lớp/lịch chính thức/dạy bù.
-- Chi tiết buổi giảng, lớp học phần, lịch trong ngày và thông báo.
-- Tạo yêu cầu xin nghỉ, đề xuất dạy bù, theo dõi trạng thái chờ duyệt.
-- Khai báo thời gian khả dụng, cập nhật thông tin hiển thị.
+- Nhập lịch bằng file Excel (.xlsx) hoặc JSON (.json), có mẫu tải về, kiểm tra dữ liệu và xem trước khi lưu.
+- JSON tự điền giảng viên, trường, mốc tuần và màu hiển thị theo cấu trúc backend.
+- Lịch tuần, chuyển tuần, danh sách, tìm kiếm và lọc theo trường từ dữ liệu backend.
+- Tổng hợp nhiều trường, chi tiết buổi dạy, cảnh báo trùng giờ và vị trí theo phút thực tế.
 - Xuất lịch tuần dưới dạng .ics; nhập với múi giờ Việt Nam.
 - Giao diện responsive, điều hướng di động, modal hỗ trợ bàn phím.
 
 ## Phạm vi
 
-Frontend dùng React, Vite và Lucide. Buổi dạy là dữ liệu mẫu trong `frontend/src/data.js`, lặp theo tuần để thử giao diện. Yêu cầu, khung giờ khả dụng, thông tin cá nhân và trạng thái đã đọc lưu bằng localStorage trên trình duyệt hiện tại. Font Be Vietnam Pro tải từ Google Fonts, có font hệ thống dự phòng.
+Frontend dùng React, Vite và Lucide. Excel được đọc bằng ExcelJS; Excel và JSON dùng chung kiểm tra giờ, tiết và tuần trước khi gửi JSON tới `POST /api/schedule/upload-school`. Lịch tuần được tải từ backend; localStorage chỉ nhớ mã giảng viên và bảng tiết tham chiếu trên thiết bị. Font Be Vietnam Pro tải từ Google Fonts, có font hệ thống dự phòng.
 
-Chưa tích hợp backend, đăng nhập, phân quyền hay luồng duyệt của điều phối viên. Yêu cầu chưa thay đổi lịch chính thức. Khi nối REST API, backend phải thực hiện xác thực, phân quyền, kiểm tra xung đột, lưu trữ tập trung và công bố lịch theo tài liệu yêu cầu. localStorage không phải nguồn dữ liệu chính thức.
+Chạy backend ở cổng 8080 và MySQL theo cấu hình server để lưu/xem lịch. Frontend đã tích hợp API lịch; đăng nhập, phân quyền, nghỉ/dạy bù và validation đầy đủ phía backend cần bổ sung. Xem [hướng dẫn frontend](frontend/README.md) để biết định dạng file và cách cấu hình API.
