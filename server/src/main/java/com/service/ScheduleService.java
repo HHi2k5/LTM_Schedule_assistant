@@ -75,7 +75,17 @@ public class ScheduleService {
 
         schoolRepository.save(school);
     }
-
+    @Transactional
+    public void deleteSchoolSchedule(String teacherId, String schoolCode) {
+        School school = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacherId, schoolCode)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy lịch của trường " + schoolCode + " cho giảng viên " + teacherId));
+        
+        // Xóa khỏi danh sách của Teacher (orphanRemoval = true sẽ tự xóa sạch trong DB)
+        Teacher teacher = school.getTeacher();
+        teacher.getSchools().remove(school);
+        schoolRepository.delete(school);
+}
     @Transactional(readOnly = true)
     public WeekScheduleResponse getWeeklySchedule(String teacherId, int weekIndex) {
         Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
