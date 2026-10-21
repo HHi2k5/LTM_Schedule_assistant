@@ -26,7 +26,7 @@ public class ScheduleService {
                 .orElseGet(() -> Teacher.builder()
                         .teacherId(request.getTeacherId())
                         .fullName(request.getTeacherName() != null ? request.getTeacherName() : request.getTeacherId())
-                        .semesterStartDate(request.getSemesterStartDate())
+                        .semesterStartDate(request.getSemesterStartDate() != null ? request.getSemesterStartDate() : LocalDate.of(2026, 8, 10))
                         .build());
 
         if (request.getSemesterStartDate() != null) {
@@ -45,19 +45,31 @@ public class ScheduleService {
         school.setSchoolName(request.getSchool().getSchoolName());
         school.setColorCode(request.getSchool().getColorCode());
 
-        // 3. Cập nhật khung giờ tiết (xóa cũ tạo mới nếu up lại)
-        school.getPeriods().clear();
-        for (PeriodTimeDTO pt : request.getSchool().getPeriods()) {
-            school.getPeriods().add(SchoolPeriod.builder()
-                    .periodNumber(pt.getPeriod())
-                    .startTime(pt.getStart())
-                    .endTime(pt.getEnd())
-                    .school(school)
-                    .build());
+        // 3. Cập nhật khung giờ tiết (An toàn chống null tuyệt đối)
+        if (school.getPeriods() == null) {
+            school.setPeriods(new HashSet<>());
+        } else {
+            school.getPeriods().clear();
         }
 
-        // 4. Cập nhật danh sách môn học của trường này
-        school.getCourses().clear();
+        if (request.getSchool().getPeriods() != null) {
+            for (PeriodTimeDTO pt : request.getSchool().getPeriods()) {
+                school.getPeriods().add(SchoolPeriod.builder()
+                        .periodNumber(pt.getPeriod())
+                        .startTime(pt.getStart())
+                        .endTime(pt.getEnd())
+                        .school(school)
+                        .build());
+            }
+        }
+
+        // 4. Cập nhật danh sách môn học của trường này (An toàn chống null tuyệt đối)
+        if (school.getCourses() == null) {
+            school.setCourses(new HashSet<>());
+        } else {
+            school.getCourses().clear();
+        }
+
         if (request.getCourses() != null) {
             for (TeachingCourseDTO dto : request.getCourses()) {
                 school.getCourses().add(TeachingCourse.builder()
@@ -76,45 +88,77 @@ public class ScheduleService {
         schoolRepository.save(school);
     }
 
+    @Transactional
+    public void deleteSchoolSchedule(String teacherId, String schoolCode) {
+        School school = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacherId, schoolCode)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Không tìm thấy lịch của trường " + schoolCode + " cho giảng viên " + teacherId));
+        
+        Teacher teacher = school.getTeacher();
+        teacher.getSchools().remove(school);
+        schoolRepository.delete(school);
+    }
+
     @Transactional(readOnly = true)
     public WeekScheduleResponse getWeeklySchedule(String teacherId, int weekIndex) {
         Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
 
-        LocalDate mondayOfWeek1 = teacher.getSemesterStartDate();
+        // Dự phòng an toàn chống NullPointerException nếu ngày khai giảng bị null
+        LocalDate mondayOfWeek1 = teacher.getSemesterStartDate() != null 
+                ? teacher.getSemesterStartDate() 
+                : LocalDate.of(2026, 8, 10);
+
         LocalDate targetMonday = mondayOfWeek1.plusWeeks(weekIndex - 1);
         LocalDate targetSunday = targetMonday.plusDays(6);
 
         List<LessonSlot> weeklyLessons = new ArrayList<>();
+        
+        // Tập hợp khóa độc lập để lọc bỏ các bản ghi bị nhân bản (tránh trùng lặp trên giao diện)
+        Set<String> uniqueLessonCheck = new HashSet<>();
 
         // Duyệt qua tất cả các trường đã lưu trong DB của giảng viên
-        for (School school : teacher.getSchools()) {
-            for (TeachingCourse course : school.getCourses()) {
-                String weekStr = course.getWeekSchedule();
-                int charIndex = weekIndex - 1;
+        if (teacher.getSchools() != null) {
+            for (School school : teacher.getSchools()) {
+                if (school.getCourses() == null) continue;
+                for (TeachingCourse course : school.getCourses()) {
+                    String weekStr = course.getWeekSchedule();
+                    if (weekStr == null || weekStr.isBlank()) continue;
 
-                if (charIndex < weekStr.length() && weekStr.charAt(charIndex) != '-' && weekStr.charAt(charIndex) != ' ') {
-                    int endPeriod = course.getStartPeriod() + course.getNumPeriods() - 1;
-                    LocalTime startTime = getPeriodStartTime(school, course.getStartPeriod());
-                    LocalTime endTime = getPeriodEndTime(school, endPeriod);
+                    int charIndex = weekIndex - 1;
+                    if (charIndex >= 0 && charIndex < weekStr.length()) {
+                        char flag = weekStr.charAt(charIndex);
+                        if (flag != '-' && flag != ' ') {
+                            int endPeriod = course.getStartPeriod() + course.getNumPeriods() - 1;
+                            LocalTime startTime = getPeriodStartTime(school, course.getStartPeriod());
+                            LocalTime endTime = getPeriodEndTime(school, endPeriod);
 
-                    int offsetDays = (course.getDayOfWeek() == 8) ? 6 : (course.getDayOfWeek() - 2);
-                    LocalDate classDate = targetMonday.plusDays(offsetDays);
+                            int offsetDays = (course.getDayOfWeek() == 8) ? 6 : (course.getDayOfWeek() - 2);
+                            LocalDate classDate = targetMonday.plusDays(offsetDays);
 
-                    weeklyLessons.add(LessonSlot.builder()
-                            .schoolId(school.getSchoolCode())
-                            .schoolName(school.getSchoolName())
-                            .colorCode(school.getColorCode())
-                            .courseName(course.getCourseName())
-                            .room(course.getClassroom())
-                            .dayOfWeek(course.getDayOfWeek())
-                            .date(classDate)
-                            .startPeriod(course.getStartPeriod())
-                            .endPeriod(endPeriod)
-                            .startTime(startTime)
-                            .endTime(endTime)
-                            .isConflict(false)
-                            .build());
+                            // Khóa định danh duy nhất cho từng buổi học
+                            String uniqueKey = course.getCourseName() + "_" + classDate.toString() + "_" + startTime.toString();
+                            
+                            if (!uniqueLessonCheck.contains(uniqueKey)) {
+                                uniqueLessonCheck.add(uniqueKey);
+
+                                weeklyLessons.add(LessonSlot.builder()
+                                        .schoolId(school.getSchoolCode())
+                                        .schoolName(school.getSchoolName())
+                                        .colorCode(school.getColorCode() != null ? school.getColorCode() : "#177c62")
+                                        .courseName(course.getCourseName())
+                                        .room(course.getClassroom())
+                                        .dayOfWeek(course.getDayOfWeek())
+                                        .date(classDate)
+                                        .startPeriod(course.getStartPeriod())
+                                        .endPeriod(endPeriod)
+                                        .startTime(startTime)
+                                        .endTime(endTime)
+                                        .isConflict(false)
+                                        .build());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -134,19 +178,31 @@ public class ScheduleService {
     }
 
     private LocalTime getPeriodStartTime(School school, int period) {
-        return school.getPeriods().stream()
-                .filter(p -> p.getPeriodNumber() == period)
-                .map(SchoolPeriod::getStartTime)
-                .findFirst()
-                .orElse(LocalTime.of(7, 0));
+        if (school != null && school.getPeriods() != null) {
+            Optional<LocalTime> time = school.getPeriods().stream()
+                    .filter(p -> p != null && p.getPeriodNumber() == period)
+                    .map(SchoolPeriod::getStartTime)
+                    .findFirst();
+            if (time.isPresent() && time.get() != null) {
+                return time.get();
+            }
+        }
+        // Fallback tự động tính giờ nếu thiếu tiết trong CSDL (mỗi tiết cách nhau 50 phút từ 7:00)
+        return LocalTime.of(7, 0).plusMinutes((Math.max(1, period) - 1) * 50);
     }
 
     private LocalTime getPeriodEndTime(School school, int period) {
-        return school.getPeriods().stream()
-                .filter(p -> p.getPeriodNumber() == period)
-                .map(SchoolPeriod::getEndTime)
-                .findFirst()
-                .orElse(LocalTime.of(11, 0));
+        if (school != null && school.getPeriods() != null) {
+            Optional<LocalTime> time = school.getPeriods().stream()
+                    .filter(p -> p != null && p.getPeriodNumber() == period)
+                    .map(SchoolPeriod::getEndTime)
+                    .findFirst();
+            if (time.isPresent() && time.get() != null) {
+                return time.get();
+            }
+        }
+        // Fallback tự động tính giờ kết thúc (mỗi tiết học 50 phút)
+        return LocalTime.of(7, 50).plusMinutes((Math.max(1, period) - 1) * 50);
     }
 
     private void detectConflicts(List<LessonSlot> slots) {
