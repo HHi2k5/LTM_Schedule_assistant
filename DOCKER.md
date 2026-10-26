@@ -16,6 +16,8 @@ Lần đầu cần Internet để tải image và dependencies. Mở http://loca
 Đăng ký tài khoản mới trên giao diện. Database Docker ban đầu trống, không tự lấy dữ liệu từ MySQL trên máy.
 Backend tự tạo/cập nhật bảng bằng Hibernate với profile `docker`.
 
+Đăng ký mới chỉ tạo giảng viên. Xem [cách cấp quyền quản lý và xuất Excel](document/phan-quyen-va-xuat-excel.md). Có thể đặt `JWT_SECRET` trong `.env` để giữ phiên đăng nhập sau khi backend khởi động lại; không đặt thì cần đăng nhập lại sau restart.
+
 Frontend gọi `/api` cùng origin; Nginx chuyển tiếp tới backend trong mạng Docker.
 Backend và MySQL không mở cổng ra máy host. Cấu hình dev và `.env.local` không được đưa vào image.
 

@@ -18,9 +18,11 @@ public class ScheduleService {
 
     private final TeacherRepository teacherRepository;
     private final SchoolRepository schoolRepository;
+    private final com.security.ScheduleAccess scheduleAccess;
 
     @Transactional
     public void saveOrUpdateSchoolSchedule(SchoolUploadRequest request) {
+        scheduleAccess.requireTeacherAccess(request.getTeacherId());
         // 1. Tìm hoặc tạo mới Giảng viên
         Teacher teacher = teacherRepository.findById(request.getTeacherId())
                 .orElseGet(() -> Teacher.builder()
@@ -90,6 +92,7 @@ public class ScheduleService {
 
     @Transactional
     public void deleteSchoolSchedule(String teacherId, String schoolCode) {
+        scheduleAccess.requireTeacherAccess(teacherId);
         School school = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacherId, schoolCode)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Không tìm thấy lịch của trường " + schoolCode + " cho giảng viên " + teacherId));
@@ -101,6 +104,7 @@ public class ScheduleService {
 
     @Transactional(readOnly = true)
     public WeekScheduleResponse getWeeklySchedule(String teacherId, int weekIndex) {
+        scheduleAccess.requireTeacherAccess(teacherId);
         Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GraduationCap, LogIn, UserPlus, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { api } from './schedule';
+import { setAccessToken } from './authSession';
 
 export default function AuthPage({ onAuthenticated }) {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
@@ -39,6 +40,8 @@ export default function AuthPage({ onAuthenticated }) {
         throw new Error(result.message || 'Thao tác thất bại.');
       }
 
+      if (!result.accessToken) throw new Error('Backend đang chạy phiên bản cũ, chưa hỗ trợ phiên đăng nhập. Hãy khởi động lại backend.');
+      setAccessToken(result.accessToken);
       setMessage(result.message);
       onAuthenticated({
         teacherId: result.teacherId,
@@ -48,6 +51,7 @@ export default function AuthPage({ onAuthenticated }) {
         semesterStartDate: result.semesterStartDate || '2026-08-10',
       });
     } catch (err) {
+      setMessage('');
       setError(err.message);
     } finally {
       setLoading(false);
@@ -154,13 +158,7 @@ export default function AuthPage({ onAuthenticated }) {
                   />
                 </label>
 
-                <label>
-                  Vai trò sử dụng
-                  <select name="role" value={form.role} onChange={handleChange}>
-                    <option value="TEACHER">Giảng viên (Xem lịch & Nhập lịch các trường)</option>
-                    <option value="ADMIN">Quản trị đào tạo (Xếp lịch toàn trường 35 phòng)</option>
-                  </select>
-                </label>
+                <p className="muted-text">Đăng ký tài khoản giảng viên. Tài khoản quản lý được cấp quyền riêng.</p>
               </>
             )}
           </fieldset>

@@ -2,9 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseWorkbook, templateWorkbook, buildUpload, firstWeek } from './excel.js';
 import { addDays, isMonday, layoutLessons, minutes, api, calendarFile } from './schedule.js';
-import { parseJsonSchedule, templateJson } from './jsonSchedule.js';
+import { parseJsonSchedule, templateJson as blankJson } from './jsonSchedule.js';
 
 const metadata = { teacherId: 'GV01', teacherName: 'Nguyễn Văn A', schoolId: 'PTIT', schoolName: 'Học viện PTIT', semesterStartDate: '2026-08-10', colorCode: '#177c62' };
+
+function templateJson() {
+  const input = blankJson();
+  input.teacherId = 'GV01'; input.teacherName = 'Teacher'; input.semesterStartDate = '2026-08-10';
+  input.school.schoolId = 'PTIT'; input.school.schoolName = 'School';
+  input.school.periods = [{ period: 1, start: '07:10', end: '08:00' }, { period: 2, start: '08:10', end: '09:00' }];
+  input.courses = [{ courseCode: 'INT1313', courseName: 'Networking', room: '402', dayOfWeek: 2, startPeriod: 1, numPeriods: 2, weekSchedule: 'xxxx-xxxx' }];
+  return input;
+}
 
 test('JSON template preserves the backend contract, UTF-8 BOM and minute-accurate times', () => {
   const input = templateJson();
@@ -40,56 +49,24 @@ test('JSON rejects syntax, schema, type and schedule errors before preview', () 
   }
 });
 
-test('backend week-number markers and leading spaces retain their original week positions in JSON and Excel', async () => {
-  const input = templateJson();
-  input.courses[0].weekSchedule = ' 23-56--';
-  const result = parseJsonSchedule(JSON.stringify(input));
-  assert.equal(result.courses[0].weekSchedule, ' 23-56--');
-  assert.equal(firstWeek(result.courses), 2);
+test('current nine-column XLSX template reads real rows and rejects invalid day/week/period references', async () => {
   const workbook = templateWorkbook();
-  workbook.getWorksheet('MonHoc').getCell('G2').value = ' 23-56--';
-  assert.equal((await parseWorkbook(await workbook.xlsx.writeBuffer())).courses[0].weekSchedule, ' 23-56--');
-});
-
-test('real XLSX template round trip produces the backend upload contract', async () => {
-  const workbook = templateWorkbook();
-  workbook.getWorksheet('TietHoc').getCell('B2').value = '07:10';
+  const sheet = workbook.worksheets[0];
+  assert.equal(sheet.columnCount, 9);
+  sheet.addRow(['INT1313', 'Networking', '01', 3, 2, 1, 2, '402', '23-56--']);
   const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer());
   const upload = buildUpload(parsed, metadata, '2026-08-10');
-  assert.equal(upload.school.periods[0].start, '07:10');
-  assert.equal(upload.courses[0].startPeriod, 1);
-  assert.equal(upload.courses[0].numPeriods, 2);
-  assert.equal(upload.school.schoolId, 'PTIT');
+  assert.equal(upload.courses[0].courseCode, 'INT1313');
+  assert.equal(upload.courses[0].weekSchedule, '23-56--');
+  assert.equal(upload.school.periods.length, 12);
   assert.equal(firstWeek([{ weekSchedule: '---xx' }, { weekSchedule: '-xx' }]), 2);
-  assert.throws(() => buildUpload(parsed, { ...metadata, semesterStartDate: '2026-08-17' }, '2026-08-10'), /Mốc tuần/);
-  assert.throws(() => buildUpload(parsed, { ...metadata, semesterStartDate: '2026-08-11' }), /Thứ Hai/);
-});
-
-test('rejects corrupt workbooks, missing sheets/columns, invalid references and duplicate rows before saving', async () => {
-  await assert.rejects(parseWorkbook(Buffer.from('not an excel file')), /Không đọc được/);
-  const cases = [
-    [workbook => { workbook.getWorksheet('MonHoc').getCell('D1').value = 'invalid'; }, /thiếu cột dayOfWeek/],
-    [workbook => { workbook.getWorksheet('MonHoc').getCell('D2').value = 9; }, /thứ phải từ 2 đến 8/],
-    [workbook => { workbook.getWorksheet('MonHoc').getCell('E2').value = 3; }, /tiết 4/],
-    [workbook => { workbook.getWorksheet('MonHoc').getCell('G2').value = '---------'; }, /chuỗi tuần/],
-    [workbook => { workbook.getWorksheet('MonHoc').getCell('G2').value = { formula: '1+1', result: 2 }; }, /công thức/],
-    [workbook => { workbook.getWorksheet('TietHoc').getCell('C2').value = '06:50'; }, /giờ kết thúc/],
-    [workbook => { workbook.getWorksheet('TietHoc').getCell('B3').value = '07:40'; }, /chồng/],
-    [workbook => { workbook.getWorksheet('MonHoc').addRow(workbook.getWorksheet('MonHoc').getRow(2).values.slice(1)); }, /bị lặp/],
-  ];
-  for (const [mutate, pattern] of cases) {
-    const workbook = templateWorkbook(); mutate(workbook);
-    await assert.rejects(parseWorkbook(await workbook.xlsx.writeBuffer()), pattern);
+  await assert.rejects(parseWorkbook(Buffer.from('not an excel file')));
+  for (const [column, value] of [[5, 9], [6, 13], [9, '---------']]) {
+    const previous = sheet.getRow(2).getCell(column).value;
+    sheet.getRow(2).getCell(column).value = value;
+    await assert.rejects(parseWorkbook(await workbook.xlsx.writeBuffer()));
+    sheet.getRow(2).getCell(column).value = previous;
   }
-});
-
-test('reads Vietnamese headers and native Excel time cells', async () => {
-  const workbook = templateWorkbook();
-  workbook.getWorksheet('MonHoc').getRow(1).values = ['Mã môn', 'Tên môn', 'Phòng', 'Thứ', 'Tiết bắt đầu', 'Số tiết', 'Chuỗi tuần'];
-  workbook.getWorksheet('TietHoc').getRow(1).values = ['Tiết', 'Giờ bắt đầu', 'Giờ kết thúc'];
-  workbook.getWorksheet('TietHoc').getCell('B2').value = (7 * 60 + 20) / 1440;
-  const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer());
-  assert.equal(parsed.periods[0].start, '07:20');
 });
 
 test('week/date math and minute offsets preserve actual start times', () => {

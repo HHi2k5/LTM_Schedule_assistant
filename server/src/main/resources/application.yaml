@@ -17,3 +17,8 @@ logging:
   level:
     root: INFO
     web: INFO
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    lifetime-seconds: 28800

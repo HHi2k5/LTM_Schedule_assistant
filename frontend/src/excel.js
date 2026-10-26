@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { validateScheduleRows, buildUpload } from './scheduleImport.js';
+import { isMonday } from './schedule.js';
 export { buildUpload } from './scheduleImport.js';
 
 const courseKeys = ['courseCode', 'courseName', 'room', 'dayOfWeek', 'startPeriod', 'numPeriods', 'weekSchedule'];
@@ -33,7 +34,7 @@ const DEFAULT_PERIODS = [
 ];
 
 // Hàm chuyển đổi khoảng thời gian thành chuỗi tuần chính xác (16 tuần chuẩn)
-function convertDateRangeToWeeks(rawText) {
+function convertDateRangeToWeeks(rawText, semesterStartDate) {
   const str = String(rawText ?? '').trim();
   if (!str) return '1111111111111111';
 
@@ -55,7 +56,8 @@ function convertDateRangeToWeeks(rawText) {
     const endDate = parseD(matches[1]);
     
     // Mốc Thứ 2 tuần 1 của kỳ học (10/08/2026)
-    const semesterStart = new Date(Date.UTC(2026, 7, 10));
+    if (!isMonday(semesterStartDate)) throw new Error('Chọn mốc Thứ Hai của tuần 1 trước khi đọc khoảng ngày.');
+    const semesterStart = new Date(`${semesterStartDate}T00:00:00Z`);
     
     const maxWeeks = 16;
     const startWeek = Math.floor((startDate - semesterStart) / (7 * 86400000)) + 1;
@@ -75,7 +77,7 @@ function convertDateRangeToWeeks(rawText) {
   return '1111111111111111';
 }
 
-export async function parseWorkbook(buffer) {
+export async function parseWorkbook(buffer, semesterStartDate) {
   const workbook = new ExcelJS.Workbook();
   try {
     await workbook.xlsx.load(buffer);
@@ -122,7 +124,7 @@ export async function parseWorkbook(buffer) {
     if (isNaN(dayOfWeek)) dayOfWeek = String(dayVal).toLowerCase().includes('cn') ? 8 : 2;
 
     const rawTime = cellValue(row.getCell(9)); // Cột I: Thời gian học
-    const weekSchedule = convertDateRangeToWeeks(rawTime);
+    const weekSchedule = convertDateRangeToWeeks(rawTime, semesterStartDate);
 
     courses.push({
       courseCode: lastCode || 'MH01',

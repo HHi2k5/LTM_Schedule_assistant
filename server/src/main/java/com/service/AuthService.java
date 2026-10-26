@@ -4,6 +4,10 @@ import com.dto.AuthRequest;
 import com.dto.AuthResponse;
 import com.model.Teacher;
 import com.repository.TeacherRepository;
+import com.security.TokenService;
+import com.security.AccountPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.authentication.BadCredentialsException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,9 +22,14 @@ import java.util.HexFormat;
 public class AuthService {
 
     private final TeacherRepository teacherRepository;
+    private final TokenService tokens;
+    private final PasswordEncoder passwords;
 
     @Transactional
     public AuthResponse register(AuthRequest req) {
+        if (req.getRole() != null && !"TEACHER".equals(req.getRole())) {
+            throw new IllegalArgumentException("Đăng ký công khai chỉ dành cho tài khoản giảng viên.");
+        }
         if (req.getUsername() == null || req.getUsername().isBlank() ||
             req.getPassword() == null || req.getPassword().isBlank() ||
             req.getTeacherId() == null || req.getTeacherId().isBlank()) {
@@ -42,14 +51,14 @@ public class AuthService {
                         .build()
         );
 
-        if (teacher.getUsername() != null && !teacher.getUsername().isBlank()) {
+        if ("ADMIN".equals(teacher.getRole()) || (teacher.getUsername() != null && !teacher.getUsername().isBlank())) {
             throw new IllegalArgumentException("Mã giảng viên '" + teacherId + "' đã được đăng ký tài khoản!");
         }
 
         teacher.setUsername(username);
-        teacher.setPassword(hashPassword(req.getPassword()));
+        teacher.setPassword(passwords.encode(req.getPassword()));
         teacher.setFullName(req.getFullName() != null && !req.getFullName().isBlank() ? req.getFullName().trim() : teacherId);
-        teacher.setRole(req.getRole() != null ? req.getRole() : "TEACHER");
+        teacher.setRole("TEACHER");
         if (req.getSemesterStartDate() != null) {
             teacher.setSemesterStartDate(req.getSemesterStartDate());
         }
@@ -57,6 +66,7 @@ public class AuthService {
         teacherRepository.save(teacher);
 
         return AuthResponse.builder()
+                .accessToken(tokens.issue(teacher.getTeacherId()))
                 .status("SUCCESS")
                 .message("Đăng ký tài khoản thành công!")
                 .teacherId(teacher.getTeacherId())
@@ -67,20 +77,28 @@ public class AuthService {
                 .build();
     }
 
+    @Transactional
     public AuthResponse login(AuthRequest req) {
         if (req.getUsername() == null || req.getPassword() == null) {
             throw new IllegalArgumentException("Vui lòng nhập tên đăng nhập và mật khẩu.");
         }
 
         Teacher teacher = teacherRepository.findByUsername(req.getUsername().trim())
-                .orElseThrow(() -> new IllegalArgumentException("Sai tên đăng nhập hoặc mật khẩu!"));
+                .orElseThrow(() -> new BadCredentialsException("Sai tên đăng nhập hoặc mật khẩu!"));
 
-        String hashedInput = hashPassword(req.getPassword());
-        if (!hashedInput.equals(teacher.getPassword())) {
-            throw new IllegalArgumentException("Sai tên đăng nhập hoặc mật khẩu!");
+        String savedPassword = teacher.getPassword();
+        boolean legacy = savedPassword != null && savedPassword.matches("[0-9a-f]{64}");
+        if (savedPassword == null || !(legacy ? hashPassword(req.getPassword()).equals(savedPassword)
+                : passwords.matches(req.getPassword(), savedPassword))) {
+            throw new BadCredentialsException("Sai tên đăng nhập hoặc mật khẩu!");
+        }
+        if (legacy) { teacher.setPassword(passwords.encode(req.getPassword())); teacherRepository.save(teacher); }
+        if (!"TEACHER".equals(teacher.getRole()) && !"ADMIN".equals(teacher.getRole())) {
+            throw new BadCredentialsException("Tài khoản chưa được cấp vai trò hợp lệ.");
         }
 
         return AuthResponse.builder()
+                .accessToken(tokens.issue(teacher.getTeacherId()))
                 .status("SUCCESS")
                 .message("Đăng nhập thành công!")
                 .teacherId(teacher.getTeacherId())
@@ -89,6 +107,13 @@ public class AuthService {
                 .role(teacher.getRole())
                 .semesterStartDate(teacher.getSemesterStartDate().toString())
                 .build();
+    }
+
+    public AuthResponse current(AccountPrincipal account) {
+        Teacher teacher = teacherRepository.findById(account.teacherId()).orElseThrow();
+        return AuthResponse.builder().status("SUCCESS").teacherId(teacher.getTeacherId())
+                .fullName(teacher.getFullName()).username(teacher.getUsername()).role(teacher.getRole())
+                .semesterStartDate(teacher.getSemesterStartDate().toString()).build();
     }
 
     private String hashPassword(String rawPassword) {

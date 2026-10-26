@@ -1,3 +1,4 @@
+import { getAccessToken, setAccessToken } from './authSession.js';
 export const dayNames = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
 
 export const minutes = value => {
@@ -68,7 +69,10 @@ export async function api(path, options = {}) {
   const fullUrl = `${baseUrl}/api/schedule${path.startsWith('/') ? path : `/${path}`}`;
   let response;
   try { 
-    response = await fetch(fullUrl, options); 
+    const headers = new Headers(options.headers);
+    const token = getAccessToken();
+    if (token && !['/auth/login', '/auth/register'].includes(path)) headers.set('Authorization', `Bearer ${token}`);
+    response = await fetch(fullUrl, { ...options, headers });
   } catch (error) {
     if (error.name === 'AbortError') throw error;
     throw new Error('Không kết nối được máy chủ. Kiểm tra backend đang chạy ở cổng 8080.');
@@ -81,8 +85,14 @@ export async function api(path, options = {}) {
     /* Tránh lỗi nếu server trả text rỗng */ 
   }
   if (!response.ok) {
+    if (response.status === 401 && !['/auth/login', '/auth/register'].includes(path)) {
+      setAccessToken('');
+      globalThis.window?.dispatchEvent(new Event('campus-auth-expired'));
+    }
     const detail = data?.message || data?.detail || data?.error;
-    throw new Error(detail ? String(detail) : `Không tải/lưu được lịch (HTTP ${response.status}). Kiểm tra máy chủ và mã giảng viên.`);
+    const error = new Error(detail ? String(detail) : `Không tải/lưu được lịch (HTTP ${response.status}). Kiểm tra máy chủ và mã giảng viên.`);
+    error.status = response.status;
+    throw error;
   }
   if (!data || typeof data !== 'object') throw new Error('Máy chủ trả dữ liệu không hợp lệ. Kiểm tra cấu hình địa chỉ API.');
   return data;
