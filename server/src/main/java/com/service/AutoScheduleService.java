@@ -2,6 +2,7 @@ package com.service;
 
 import com.dto.*;
 import com.model.*;
+import com.repository.RoomRepository;
 import com.repository.TeacherRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,66 +16,69 @@ import java.util.*;
 public class AutoScheduleService {
 
     private final TeacherRepository teacherRepository;
+    private final RoomRepository roomRepository;
     private final ScheduleService scheduleService;
 
-    // 4 ca chuẩn trong 1 ngày (Sáng 5 tiết: [1-3, 4-5], Chiều 5 tiết: [6-8, 9-10])
-    private static final int[][] DAILY_SLOTS = {
-            {1, 3}, // Slot 0 - Ca 1 Sáng: Tiết 1-3 (3 tiết)
-            {4, 2}, // Slot 1 - Ca 2 Sáng: Tiết 4-5 (2 tiết)
-            {6, 3}, // Slot 2 - Ca 1 Chiều: Tiết 6-8 (3 tiết)
-            {9, 2}  // Slot 3 - Ca 2 Chiều: Tiết 9-10 (2 tiết)
-    };
+    // Các tiết bắt đầu ca chuẩn trong ngày (Tiết 1, Tiết 4, Tiết 7, Tiết 10)
+    private static final int[] DEFAULT_START_PERIODS = {1, 4, 7, 10};
 
-    /**
-     * Tự động khởi tạo 35 phòng học: 7 tầng (1 -> 7), mỗi tầng 5 phòng (01 -> 05)
-     */
-    private List<String> generate35Rooms(String buildingSuffix) {
-        List<String> rooms = new ArrayList<>(35);
-        String suffix = (buildingSuffix != null && !buildingSuffix.isBlank()) ? "-" + buildingSuffix.trim() : "";
-        for (int floor = 1; floor <= 7; floor++) {
-            for (int r = 1; r <= 5; r++) {
-                rooms.add(String.format("%d%02d%s", floor, r, suffix)); // VD: 101-A2 ... 705-A2
-            }
-        }
-        return rooms;
-    }
+    // Sĩ số tối đa của 1 Tổ thực hành phòng LAB
+    private static final int MAX_PRACTICE_SUBGROUP_SIZE = 30;
 
     @Transactional
     public AutoScheduleResponse generateSchoolWideSchedule(SchoolWideScheduleRequest request) {
+        List<Room> rooms = roomRepository.findAllByOrderByCapacityAsc();
+        return generateScheduleWithRooms(request, rooms);
+    }
+
+    @Transactional
+    public AutoScheduleResponse generateScheduleWithRooms(
+            SchoolWideScheduleRequest request,
+            List<Room> availableRooms) {
+
         int totalWeeks = request.getTotalWeeks() > 0 ? request.getTotalWeeks() : 16;
-        int halfWeeks = totalWeeks / 2;
 
-        String firstHalfWeeks = buildWeekString(1, halfWeeks, totalWeeks);
-        String secondHalfWeeks = buildWeekString(halfWeeks + 1, totalWeeks, totalWeeks);
+        // Sắp xếp danh sách phòng theo sức chứa tăng dần để thuật toán Best-Fit chọn phòng vừa khít nhất
+        List<Room> allRooms = new ArrayList<>(availableRooms);
+        allRooms.sort(Comparator.comparingInt(Room::getCapacity));
 
-        // 1. Tạo danh sách 35 phòng học từ tầng 1 đến tầng 7
-        List<String> rooms = generate35Rooms(request.getBuildingSuffix());
+        // Quản lý phòng bận theo từng tiết trong ngày: Key = "roomCode_day_period"
+        Set<String> occupiedRoomPeriods = new HashSet<>();
 
-        // Quản lý phòng đã bị chiếm dụng trên toàn trường: Key = "day_slotIdx" -> Set<Room>
-        Map<String, Set<String>> occupiedRooms = new HashMap<>();
+        // Quản lý tiết bận của giảng viên: Key = "teacherId_day_period"
+        Set<String> occupiedTeacherPeriods = new HashSet<>();
 
-        // Quản lý các ca giảng viên đã bị xếp lịch nội bộ (để 1 GV dạy 2 môn không tự đụng nhau)
-        Map<String, Set<String>> internalTeacherBusySlots = new HashMap<>();
+        // Quản lý các ngày giảng viên đã dạy một môn học cụ thể để gom lịch vào 1-2 ngày: Key = "teacherId_courseCode" -> LinkedHashSet<Day>
+        Map<String, Set<Integer>> teacherCourseDaysMap = new HashMap<>();
 
         // Lưu danh sách môn học theo từng giảng viên để ghi xuống MySQL
-        Map<String, List<TeachingCourseDTO>> coursesByTeacher = new HashMap<>();
+        Map<String, List<TeachingCourseDTO>> coursesByTeacher = new LinkedHashMap<>();
         Map<String, String> teacherNames = new HashMap<>();
+
+        // Đếm thứ tự lớp mở theo từng mã môn
+        Map<String, Integer> courseClassCounter = new HashMap<>();
 
         List<GeneratedClassSlot> allGeneratedSlots = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         int totalPhysicalClassesScheduled = 0;
 
-        // 2. Duyệt qua từng môn học trong toàn trường
         for (CourseDemandDTO course : request.getCourses()) {
             List<TeacherCandidateDTO> teachers = course.getTeachers();
             if (teachers == null || teachers.isEmpty()) {
-                warnings.add("Môn " + course.getCourseName() + " không có giảng viên nào được phân công!");
+                warnings.add("Môn " + course.getCourseName() + " không có giảng viên phụ trách!");
                 continue;
             }
 
-            // Tự động chia đều số lớp của môn học cho các giảng viên
+            int classSize = course.getClassSize() > 0 ? course.getClassSize() : 50;
+            int startWeek = course.getStartWeek() > 0 ? course.getStartWeek() : 1;
+            int numPeriods = course.getNumPeriodsPerSession() > 0 ? course.getNumPeriodsPerSession() : 3;
+            boolean needPractice = course.getHasPractice() == null || course.getHasPractice();
+            String cohort = (course.getCohort() != null && !course.getCohort().isBlank()) ? course.getCohort() : "2024";
+
+            String theoryWeeks = buildWeekString(startWeek, totalWeeks, totalWeeks);
+            String practiceWeeks = buildWeekString(Math.min(startWeek + 1, totalWeeks), totalWeeks, totalWeeks);
+
             Map<String, Integer> teacherClassQuota = allocateClassesToTeachers(course.getTotalClassesToOpen(), teachers);
-            int globalGroupCounter = 1; // Đánh số Nhóm 01, 02... tăng dần cho toàn bộ môn học
 
             for (TeacherCandidateDTO teacher : teachers) {
                 String teacherId = teacher.getTeacherId();
@@ -83,132 +87,160 @@ public class AutoScheduleService {
 
                 teacherNames.put(teacherId, teacher.getTeacherName());
                 coursesByTeacher.putIfAbsent(teacherId, new ArrayList<>());
-                internalTeacherBusySlots.putIfAbsent(teacherId, new HashSet<>());
 
-                // Lấy lịch bận ở các trường khác từ MySQL
+                String teacherCourseKey = teacherId + "_" + course.getCourseCode();
+                teacherCourseDaysMap.putIfAbsent(teacherCourseKey, new LinkedHashSet<>());
+                Set<Integer> preferredDays = teacherCourseDaysMap.get(teacherCourseKey);
+
                 List<BusyTimeSlot> externalBusySlots = getExternalBusySlots(
                         teacherId, request.getTargetSchool().getSchoolId()
                 );
 
-                int maxDaysForThisCourse = (classesToTeach <= 4) ? 1 : 2;
-                int scheduledForTeacher = 0;
-                int daysUsed = 0;
+                for (int c = 0; c < classesToTeach; c++) {
+                    int classSeq = courseClassCounter.getOrDefault(course.getCourseCode(), 0) + 1;
+                    courseClassCounter.put(course.getCourseCode(), classSeq);
+                    String classGroupCode = String.format("Lớp %02d", classSeq);
 
-                List<Integer> daysOrder = Arrays.asList(2, 3, 4, 5, 6, 7);
+                    // =========================================================================
+                    // 1. XẾP PHÒNG LÝ THUYẾT (Cả lớp học chung 1 phòng Lý thuyết đủ sức chứa)
+                    // Ưu tiên đúng Thứ & Tiết bắt đầu trong file Excel, và gom trong 1-2 ngày của GV
+                    // =========================================================================
+                    RoomSlotPlacement theoryPlacement = findBestRoomAndTime(
+                            allRooms,
+                            occupiedRoomPeriods,
+                            occupiedTeacherPeriods,
+                            teacherId,
+                            externalBusySlots,
+                            request.getTargetSchool(),
+                            false, // Phòng Lý thuyết (isLab = false)
+                            classSize,
+                            course.getFixedDayOfWeek(),
+                            course.getFixedStartPeriod(),
+                            numPeriods,
+                            preferredDays,
+                            -1, -1
+                    );
 
-                for (int day : daysOrder) {
-                    if (scheduledForTeacher >= classesToTeach || daysUsed >= maxDaysForThisCourse) break;
-
-                    List<Integer> freeSlots = new ArrayList<>();
-                    for (int slotIdx = 0; slotIdx < DAILY_SLOTS.length; slotIdx++) {
-                        int startP = DAILY_SLOTS[slotIdx][0];
-                        int numP = DAILY_SLOTS[slotIdx][1];
-                        String internalKey = day + "_" + slotIdx;
-
-                        boolean isInternallyBusy = internalTeacherBusySlots.get(teacherId).contains(internalKey);
-                        boolean isExternallyBusy = isTeacherBusyExternally(startP, numP, day, request.getTargetSchool(), externalBusySlots);
-
-                        if (!isInternallyBusy && !isExternallyBusy) {
-                            freeSlots.add(slotIdx);
-                        }
+                    if (theoryPlacement == null) {
+                        warnings.add(String.format("Không tìm được phòng Lý thuyết trống đủ sức chứa (%d SV) cho môn %s (%s) - %s.",
+                                classSize, course.getCourseName(), course.getCourseCode(), classGroupCode));
+                        continue;
                     }
 
-                    if (freeSlots.isEmpty()) continue;
+                    // Đánh dấu phòng & giảng viên bận ở khung giờ Lý thuyết
+                    bookRoomAndTeacher(
+                            theoryPlacement.room.getRoomCode(),
+                            teacherId,
+                            theoryPlacement.day,
+                            theoryPlacement.startPeriod,
+                            theoryPlacement.numPeriods,
+                            occupiedRoomPeriods,
+                            occupiedTeacherPeriods
+                    );
+                    preferredDays.add(theoryPlacement.day);
 
-                    boolean usedThisDay = false;
-                    int classesInThisDay = 0;
+                    String theoryNote = String.format("Lý thuyết Cả lớp (%d SV) - Phòng %s (Sức chứa %d)",
+                            classSize, theoryPlacement.room.getRoomCode(), theoryPlacement.room.getCapacity());
 
-                    for (int i = 0; i < freeSlots.size() && scheduledForTeacher < classesToTeach && classesInThisDay < 4; i++) {
-                        int slotIdx = freeSlots.get(i);
-                        int startP1 = DAILY_SLOTS[slotIdx][0];
-                        int numP1 = DAILY_SLOTS[slotIdx][1];
+                    recordClassSlot(
+                            allGeneratedSlots,
+                            coursesByTeacher.get(teacherId),
+                            teacher,
+                            course,
+                            cohort,
+                            classGroupCode,
+                            "Cả lớp",
+                            "THEORY",
+                            classSize,
+                            theoryPlacement.room,
+                            theoryPlacement.day,
+                            theoryPlacement.startPeriod,
+                            theoryPlacement.numPeriods,
+                            theoryWeeks,
+                            theoryNote,
+                            allRooms.size()
+                    );
+                    totalPhysicalClassesScheduled++;
 
-                        boolean canPairInSameSession = (slotIdx == 0 || slotIdx == 2)
-                                && freeSlots.contains(slotIdx + 1)
-                                && (scheduledForTeacher + 1 < classesToTeach)
-                                && (classesInThisDay + 1 < 4);
+                    // =========================================================================
+                    // 2. CHIA TỔ & XẾP PHÒNG THỰC HÀNH (Tách lớp thành nhiều Tổ, mỗi Tổ 1 phòng LAB)
+                    // =========================================================================
+                    if (needPractice) {
+                        int numSubGroups = Math.max(2, (int) Math.ceil((double) classSize / MAX_PRACTICE_SUBGROUP_SIZE));
+                        int baseSubSize = classSize / numSubGroups;
+                        int remainder = classSize % numSubGroups;
 
-                        if (canPairInSameSession) {
-                            int nextSlotIdx = slotIdx + 1;
-                            int startP2 = DAILY_SLOTS[nextSlotIdx][0];
-                            int numP2 = DAILY_SLOTS[nextSlotIdx][1];
+                        for (int subIdx = 1; subIdx <= numSubGroups; subIdx++) {
+                            int subGroupSize = baseSubSize + (subIdx <= remainder ? 1 : 0);
+                            String subGroupLabel = "Tổ " + subIdx;
 
-                            List<String> twoRooms = findAvailableRoomsForSession(day, slotIdx, nextSlotIdx, rooms, occupiedRooms, 2);
+                            // Tìm phòng LAB cho từng Tổ:
+                            // - Ưu tiên xếp cùng trong 1-2 ngày dạy của giảng viên (preferredDays)
+                            // - Không trùng với tiết học Lý thuyết của chính lớp đó
+                            // - Các Tổ khác nhau sẽ tự động vào các phòng LAB khác nhau hoặc ca khác nhau
+                            RoomSlotPlacement practicePlacement = findBestRoomAndTime(
+                                    allRooms,
+                                    occupiedRoomPeriods,
+                                    occupiedTeacherPeriods,
+                                    teacherId,
+                                    externalBusySlots,
+                                    request.getTargetSchool(),
+                                    true, // Phòng Thực hành LAB (isLab = true)
+                                    subGroupSize,
+                                    null, // Thực hành linh hoạt ca trong 1-2 ngày ưu tiên của GV
+                                    null,
+                                    numPeriods,
+                                    preferredDays,
+                                    theoryPlacement.day,
+                                    theoryPlacement.startPeriod
+                            );
 
-                            if (twoRooms.size() == 2) {
-                                String roomA = twoRooms.get(0);
-                                String roomB = twoRooms.get(1);
+                            if (practicePlacement != null) {
+                                bookRoomAndTeacher(
+                                        practicePlacement.room.getRoomCode(),
+                                        teacherId,
+                                        practicePlacement.day,
+                                        practicePlacement.startPeriod,
+                                        practicePlacement.numPeriods,
+                                        occupiedRoomPeriods,
+                                        occupiedTeacherPeriods
+                                );
+                                preferredDays.add(practicePlacement.day);
 
-                                String group1 = String.format("%02d", globalGroupCounter++);
-                                String group2 = String.format("%02d", globalGroupCounter++);
+                                String practiceNote = String.format("Thực hành %s (%d/%d SV) - Phòng LAB %s (Sức chứa %d)",
+                                        subGroupLabel, subGroupSize, classSize,
+                                        practicePlacement.room.getRoomCode(), practicePlacement.room.getCapacity());
 
-                                // LỚP 1 (Phòng A): Nửa đầu 3 tiết, nửa sau đảo xuống 2 tiết
-                                recordClassSlot(allGeneratedSlots, coursesByTeacher.get(teacherId),
-                                        teacher, course, group1, roomA, day, startP1, numP1, firstHalfWeeks,
-                                        "Nửa kỳ đầu: 3 tiết (Tiết " + startP1 + "-" + (startP1 + numP1 - 1) + ")");
-                                recordClassSlot(allGeneratedSlots, coursesByTeacher.get(teacherId),
-                                        teacher, course, group1, roomA, day, startP2, numP2, secondHalfWeeks,
-                                        "Nửa kỳ sau đảo: 2 tiết (Tiết " + startP2 + "-" + (startP2 + numP2 - 1) + ")");
-
-                                // LỚP 2 (Phòng B): Nửa đầu 2 tiết, nửa sau đảo lên 3 tiết
-                                recordClassSlot(allGeneratedSlots, coursesByTeacher.get(teacherId),
-                                        teacher, course, group2, roomB, day, startP2, numP2, firstHalfWeeks,
-                                        "Nửa kỳ đầu: 2 tiết (Tiết " + startP2 + "-" + (startP2 + numP2 - 1) + ")");
-                                recordClassSlot(allGeneratedSlots, coursesByTeacher.get(teacherId),
-                                        teacher, course, group2, roomB, day, startP1, numP1, secondHalfWeeks,
-                                        "Nửa kỳ sau đảo: 3 tiết (Tiết " + startP1 + "-" + (startP1 + numP1 - 1) + ")");
-
-                                markRoomOccupied(day, slotIdx, roomA, occupiedRooms);
-                                markRoomOccupied(day, nextSlotIdx, roomA, occupiedRooms);
-                                markRoomOccupied(day, slotIdx, roomB, occupiedRooms);
-                                markRoomOccupied(day, nextSlotIdx, roomB, occupiedRooms);
-
-                                internalTeacherBusySlots.get(teacherId).add(day + "_" + slotIdx);
-                                internalTeacherBusySlots.get(teacherId).add(day + "_" + nextSlotIdx);
-
-                                scheduledForTeacher += 2;
-                                classesInThisDay += 2;
-                                totalPhysicalClassesScheduled += 2;
-                                usedThisDay = true;
-                                i++;
-                                continue;
+                                recordClassSlot(
+                                        allGeneratedSlots,
+                                        coursesByTeacher.get(teacherId),
+                                        teacher,
+                                        course,
+                                        cohort,
+                                        classGroupCode + " - " + subGroupLabel,
+                                        subGroupLabel,
+                                        "PRACTICE",
+                                        subGroupSize,
+                                        practicePlacement.room,
+                                        practicePlacement.day,
+                                        practicePlacement.startPeriod,
+                                        practicePlacement.numPeriods,
+                                        practiceWeeks,
+                                        practiceNote,
+                                        allRooms.size()
+                                );
+                                totalPhysicalClassesScheduled++;
+                            } else {
+                                warnings.add(String.format("Môn %s (%s - %s, %d SV): Hết phòng LAB thực hành trống phù hợp!",
+                                        course.getCourseName(), classGroupCode, subGroupLabel, subGroupSize));
                             }
                         }
-
-                        String singleRoom = findSingleAvailableRoom(day, slotIdx, rooms, occupiedRooms);
-                        if (singleRoom != null) {
-                            String group = String.format("%02d", globalGroupCounter++);
-
-                            recordClassSlot(allGeneratedSlots, coursesByTeacher.get(teacherId),
-                                    teacher, course, group, singleRoom, day, startP1, 3, firstHalfWeeks,
-                                    "Nửa kỳ đầu: 3 tiết");
-                            recordClassSlot(allGeneratedSlots, coursesByTeacher.get(teacherId),
-                                    teacher, course, group, singleRoom, day, startP1, 2, secondHalfWeeks,
-                                    "Nửa kỳ sau: 2 tiết");
-
-                            markRoomOccupied(day, slotIdx, singleRoom, occupiedRooms);
-                            internalTeacherBusySlots.get(teacherId).add(day + "_" + slotIdx);
-
-                            scheduledForTeacher++;
-                            classesInThisDay++;
-                            totalPhysicalClassesScheduled++;
-                            usedThisDay = true;
-                        }
                     }
-
-                    if (usedThisDay) {
-                        daysUsed++;
-                    }
-                }
-
-                if (scheduledForTeacher < classesToTeach) {
-                    warnings.add(String.format("GV %s (%s) môn %s: Chỉ xếp được %d/%d lớp (do kín phòng hoặc vướng lịch trường khác).",
-                            teacher.getTeacherName(), teacherId, course.getCourseName(), scheduledForTeacher, classesToTeach));
                 }
             }
         }
 
-        // 3. Lưu toàn bộ kết quả xếp lịch vào MySQL
+        // Lưu toàn bộ lịch của từng giảng viên xuống MySQL
         for (Map.Entry<String, List<TeachingCourseDTO>> entry : coursesByTeacher.entrySet()) {
             String teacherId = entry.getKey();
             SchoolUploadRequest saveReq = SchoolUploadRequest.builder()
@@ -223,35 +255,127 @@ public class AutoScheduleService {
 
         return AutoScheduleResponse.builder()
                 .status(warnings.isEmpty() ? "SUCCESS" : "PARTIAL_SUCCESS")
-                .message("Đã hoàn tất xếp lịch toàn trường trên hệ thống 35 phòng học (Tầng 1 - Tầng 7)!")
-                .totalRoomsAvailable(rooms.size())
+                .message("Đã hoàn tất xếp lịch tự động: Chia đều lớp cho Giảng viên (gom gọn 1-2 ngày), chọn phòng theo Sĩ số và tách Tổ Thực hành!")
+                .totalRoomsAvailable(allRooms.size())
                 .totalClassesScheduled(totalPhysicalClassesScheduled)
                 .scheduledClasses(allGeneratedSlots)
                 .unscheduledWarnings(warnings)
                 .build();
     }
 
-    private Map<String, Integer> allocateClassesToTeachers(int totalClasses, List<TeacherCandidateDTO> teachers) {
-        Map<String, Integer> allocation = new LinkedHashMap<>();
-        int remaining = totalClasses;
-        List<TeacherCandidateDTO> autoAssignTeachers = new ArrayList<>();
+    private record RoomSlotPlacement(Room room, int day, int startPeriod, int numPeriods) {}
 
-        for (TeacherCandidateDTO t : teachers) {
-            if (t.getAssignedClasses() != null && t.getAssignedClasses() > 0) {
-                allocation.put(t.getTeacherId(), t.getAssignedClasses());
-                remaining -= t.getAssignedClasses();
-            } else {
-                autoAssignTeachers.add(t);
-            }
+    /**
+     * Tìm Phòng học (Best-Fit theo sĩ số) và Khung giờ:
+     * 1. Nếu file Kế hoạch mở lớp đã có Thứ (fixedDay) và Tiết BĐ (fixedStartPeriod): Tìm phòng trống ngay tại Thứ & Tiết đó trước.
+     * 2. Ưu tiên xếp vào các ngày giảng viên đã lên trường dạy môn này (preferredDays, tối đa 1-2 ngày) trước khi mở sang ngày mới.
+     */
+    private RoomSlotPlacement findBestRoomAndTime(
+            List<Room> allRooms,
+            Set<String> occupiedRoomPeriods,
+            Set<String> occupiedTeacherPeriods,
+            String teacherId,
+            List<BusyTimeSlot> externalBusySlots,
+            SchoolConfigDTO targetSchool,
+            boolean needLabRoom,
+            int requiredCapacity,
+            Integer fixedDay,
+            Integer fixedStartPeriod,
+            int numPeriods,
+            Set<Integer> preferredDays,
+            int avoidDay,
+            int avoidStartPeriod) {
+
+        // Xây dựng thứ tự ưu tiên các ngày kiểm tra:
+        // 1. Ngày cố định từ file Excel (nếu có) -> 2. Ngày mà GV đang dạy môn này (gom vào 1-2 ngày) -> 3. Các ngày còn lại trong tuần
+        List<Integer> candidateDays = new ArrayList<>();
+        if (fixedDay != null && fixedDay >= 2 && fixedDay <= 8) {
+            candidateDays.add(fixedDay);
+        }
+        for (Integer pd : preferredDays) {
+            if (!candidateDays.contains(pd)) candidateDays.add(pd);
+        }
+        for (int d = 2; d <= 7; d++) {
+            if (!candidateDays.contains(d)) candidateDays.add(d);
         }
 
-        if (!autoAssignTeachers.isEmpty() && remaining > 0) {
-            int base = remaining / autoAssignTeachers.size();
-            int mod = remaining % autoAssignTeachers.size();
-            for (int i = 0; i < autoAssignTeachers.size(); i++) {
-                int count = base + (i < mod ? 1 : 0);
-                allocation.put(autoAssignTeachers.get(i).getTeacherId(), count);
+        // Xây dựng thứ tự ưu tiên Tiết bắt đầu:
+        List<Integer> candidateStartPeriods = new ArrayList<>();
+        if (fixedStartPeriod != null && fixedStartPeriod >= 1 && fixedStartPeriod <= 12) {
+            candidateStartPeriods.add(fixedStartPeriod);
+        }
+        for (int sp : DEFAULT_START_PERIODS) {
+            if (!candidateStartPeriods.contains(sp)) candidateStartPeriods.add(sp);
+        }
+
+        for (int day : candidateDays) {
+            for (int startP : candidateStartPeriods) {
+                // Không xếp Thực hành đè lên đúng giờ Lý thuyết của chính lớp đó
+                if (day == avoidDay && startP == avoidStartPeriod) {
+                    continue;
+                }
+
+                // Kiểm tra giảng viên có rảnh trong toàn bộ các tiết (startP .. startP + numPeriods - 1) không
+                if (!isTeacherFree(teacherId, day, startP, numPeriods, occupiedTeacherPeriods)) {
+                    continue;
+                }
+                if (isTeacherBusyExternally(startP, numPeriods, day, targetSchool, externalBusySlots)) {
+                    continue;
+                }
+
+                // Tìm phòng trống đúng loại (Lý thuyết / LAB) và có sức chứa vừa vặn nhất (Best-Fit)
+                for (Room room : allRooms) {
+                    if (room.isLab() != needLabRoom) continue;
+                    if (room.getCapacity() < requiredCapacity) continue;
+
+                    if (isRoomFree(room.getRoomCode(), day, startP, numPeriods, occupiedRoomPeriods)) {
+                        return new RoomSlotPlacement(room, day, startP, numPeriods);
+                    }
+                }
             }
+        }
+        return null;
+    }
+
+    private boolean isRoomFree(String roomCode, int day, int startPeriod, int numPeriods, Set<String> occupiedRoomPeriods) {
+        for (int p = startPeriod; p < startPeriod + numPeriods; p++) {
+            if (occupiedRoomPeriods.contains(roomCode + "_" + day + "_" + p)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isTeacherFree(String teacherId, int day, int startPeriod, int numPeriods, Set<String> occupiedTeacherPeriods) {
+        for (int p = startPeriod; p < startPeriod + numPeriods; p++) {
+            if (occupiedTeacherPeriods.contains(teacherId + "_" + day + "_" + p)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void bookRoomAndTeacher(
+            String roomCode,
+            String teacherId,
+            int day,
+            int startPeriod,
+            int numPeriods,
+            Set<String> occupiedRoomPeriods,
+            Set<String> occupiedTeacherPeriods) {
+        for (int p = startPeriod; p < startPeriod + numPeriods; p++) {
+            occupiedRoomPeriods.add(roomCode + "_" + day + "_" + p);
+            occupiedTeacherPeriods.add(teacherId + "_" + day + "_" + p);
+        }
+    }
+
+    private Map<String, Integer> allocateClassesToTeachers(int totalClasses, List<TeacherCandidateDTO> teachers) {
+        Map<String, Integer> allocation = new LinkedHashMap<>();
+        int base = totalClasses / teachers.size();
+        int mod = totalClasses % teachers.size();
+        for (int i = 0; i < teachers.size(); i++) {
+            int count = base + (i < mod ? 1 : 0);
+            allocation.put(teachers.get(i).getTeacherId(), Math.max(1, count));
         }
         return allocation;
     }
@@ -261,34 +385,49 @@ public class AutoScheduleService {
             List<TeachingCourseDTO> dbDtoList,
             TeacherCandidateDTO teacher,
             CourseDemandDTO course,
+            String cohort,
             String groupName,
-            String room,
+            String subGroup,
+            String sessionType,
+            int studentCount,
+            Room room,
             int day,
             int startPeriod,
             int numPeriods,
             String weekSchedule,
-            String phaseNote) {
+            String phaseNote,
+            int totalRoomsAvailable) {
 
-        String displayCourseName = course.getCourseName() + " - Nhóm " + groupName;
+        String typeTag = "PRACTICE".equals(sessionType) ? "[TH] " : "[LT] ";
+        String displayCourseName = String.format("%s%s (Khóa %s - %s - %d SV)",
+                typeTag, course.getCourseName(), cohort, groupName, studentCount);
 
         outputList.add(GeneratedClassSlot.builder()
                 .teacherId(teacher.getTeacherId())
                 .teacherName(teacher.getTeacherName())
                 .courseCode(course.getCourseCode())
                 .courseName(displayCourseName)
+                .cohort(cohort)
                 .classGroup(groupName)
-                .room(room)
+                .subGroup(subGroup)
+                .sessionType(sessionType)
+                .studentCount(studentCount)
+                .room(room.getRoomCode())
+                .roomType(room.getRoomType())
+                .roomCapacity(room.getCapacity())
                 .dayOfWeek(day)
                 .startPeriod(startPeriod)
                 .numPeriods(numPeriods)
                 .weekSchedule(weekSchedule)
                 .phaseNote(phaseNote)
+                .totalRoomsAvailable(totalRoomsAvailable)
+                .totalClassesScheduled(outputList.size() + 1)
                 .build());
 
         dbDtoList.add(TeachingCourseDTO.builder()
                 .courseCode(course.getCourseCode())
                 .courseName(displayCourseName)
-                .room(room)
+                .room(room.getRoomCode())
                 .dayOfWeek(day)
                 .startPeriod(startPeriod)
                 .numPeriods(numPeriods)
@@ -346,43 +485,10 @@ public class AutoScheduleService {
         return false;
     }
 
-    private List<String> findAvailableRoomsForSession(int day, int slot1, int slot2,
-                                                      List<String> allRooms, Map<String, Set<String>> occupied, int countNeeded) {
-        Set<String> used1 = occupied.getOrDefault(day + "_" + slot1, Collections.emptySet());
-        Set<String> used2 = occupied.getOrDefault(day + "_" + slot2, Collections.emptySet());
-        List<String> result = new ArrayList<>();
-        for (String r : allRooms) {
-            if (!used1.contains(r) && !used2.contains(r)) {
-                result.add(r);
-                if (result.size() == countNeeded) break;
-            }
-        }
-        return result;
-    }
-
-    private String findSingleAvailableRoom(int day, int slotIdx, List<String> allRooms, Map<String, Set<String>> occupied) {
-        Set<String> used = occupied.getOrDefault(day + "_" + slotIdx, Collections.emptySet());
-        for (String r : allRooms) {
-            if (!used.contains(r)) return r;
-        }
-        return null;
-    }
-
-    private void markRoomOccupied(int day, int slotIdx, String room, Map<String, Set<String>> occupied) {
-        occupied.computeIfAbsent(day + "_" + slotIdx, k -> new HashSet<>()).add(room);
-    }
-
-    /**
-     * FIX QUAN TRỌNG: Tạo chuỗi tuần chuẩn dạng '1' (có học) và '-' (nghỉ) thay vì '1234567890...'
-     */
     private String buildWeekString(int fromWeek, int toWeek, int totalWeeks) {
         StringBuilder sb = new StringBuilder();
         for (int w = 1; w <= totalWeeks; w++) {
-            if (w >= fromWeek && w <= toWeek) {
-                sb.append('1'); // Đánh dấu tuần học bằng '1'
-            } else {
-                sb.append('-'); // Đánh dấu tuần nghỉ bằng '-'
-            }
+            sb.append((w >= fromWeek && w <= toWeek) ? '1' : '-');
         }
         return sb.toString();
     }
