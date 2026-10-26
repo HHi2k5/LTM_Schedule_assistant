@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Upload, Download, Calendar, CheckCircle2, AlertTriangle, Plus, Trash2, RefreshCw, Search, Building2, Users, BookOpen } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { api } from './schedule';
+import { scheduledWorkbook } from './scheduleExport';
 
 export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTeacherSchedule }) {
   const [schoolId, setSchoolId] = useState('PTIT');
@@ -16,6 +17,8 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   // Bộ lọc bảng kết quả hoàn chỉnh
   const [filterText, setFilterText] = useState('');
@@ -47,7 +50,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     sheet.addRow([
       'STT', 'Mã môn', 'Tên học phần', 'Sĩ số', 'Khóa',
       'Số lớp mở', 'Tuần bắt đầu', 'Tiết BĐ', 'Số tiết',
-      'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'
+      'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Số tín chỉ'
     ]);
     sheet.addRow([92, '61FIT3DBS', 'Cơ sở dữ liệu', 50, '2024', 1, 1, 1, 3, 'x', '', '', '', '', '']);
     sheet.addRow([93, '61FIT3DBS', 'Cơ sở dữ liệu', 50, '2024', 1, 1, 4, 3, '', 'x', '', '', '', '']);
@@ -89,41 +92,13 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
 
   // Xuất kết quả phân công hoàn chỉnh ra file Excel
   async function exportResultToExcel() {
-    if (!result?.scheduledClasses?.length) return;
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('BangPhanCongHoanChinh');
-    sheet.addRow([
-      'STT', 'Mã GV', 'Họ tên Giảng viên', 'Mã môn', 'Tên học phần & Nhóm',
-      'Khóa', 'Lớp / Nhóm', 'Tổ', 'Loại buổi học', 'Sĩ số ca học',
-      'Phòng học', 'Loại phòng', 'Sức chứa phòng', 'Thứ', 'Tiết BĐ', 'Số tiết', 'Chuỗi tuần', 'Ghi chú'
-    ]);
-    sheet.getRow(1).font = { bold: true };
-
-    result.scheduledClasses.forEach((slot, idx) => {
-      sheet.addRow([
-        idx + 1,
-        slot.teacherId,
-        slot.teacherName,
-        slot.courseCode,
-        slot.courseName,
-        slot.cohort || '2024',
-        slot.classGroup,
-        slot.subGroup || (slot.sessionType === 'PRACTICE' ? 'Tổ TH' : 'Cả lớp'),
-        slot.sessionType === 'PRACTICE' ? 'Thực hành (LAB)' : 'Lý thuyết',
-        slot.studentCount || '',
-        slot.room,
-        slot.roomType || '',
-        slot.roomCapacity || '',
-        slot.dayOfWeek === 8 ? 'CN' : `Thứ ${slot.dayOfWeek}`,
-        slot.startPeriod,
-        slot.numPeriods,
-        slot.weekSchedule,
-        slot.phaseNote
-      ]);
-    });
-
-    sheet.columns.forEach(col => { col.width = 18; });
-    await saveWorkbookBlob(workbook, `bang-phan-cong-lich-truong-${schoolId}.xlsx`);
+    if (busy || exporting || !result?.scheduledClasses?.length) return;
+    setExporting(true); setExportError('');
+    try {
+      const { workbook, filename } = scheduledWorkbook(result);
+      await saveWorkbookBlob(workbook, filename);
+    } catch (err) { setExportError(err.message); }
+    finally { setExporting(false); }
   }
 
   async function saveWorkbookBlob(workbook, filename) {
@@ -140,6 +115,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
   // ==================== GỬI 3 FILE EXCEL LÊN BACKEND ====================
   async function handleExcelSubmit(event) {
     event.preventDefault();
+    if (busy || exporting) return;
     if (!planFile) {
       setError('Vui lòng chọn ít nhất File 1: Kế hoạch mở lớp (.xlsx).');
       return;
@@ -147,6 +123,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     setBusy(true);
     setError('');
     setResult(null);
+    setExportError('');
 
     try {
       const formData = new FormData();
@@ -174,6 +151,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
   // ==================== ĐÓNG GÓI BẢNG NHẬP NHANH THÀNH 3 FILE EXCEL ====================
   async function handleManualSubmit(event) {
     event.preventDefault();
+    if (busy || exporting) return;
     const validPlans = manualPlans.filter(p => p.courseCode.trim() && p.courseName.trim());
     if (!validPlans.length) {
       setError('Vui lòng nhập ít nhất 1 dòng trong bảng Kế hoạch mở lớp.');
@@ -183,6 +161,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     setBusy(true);
     setError('');
     setResult(null);
+    setExportError('');
 
     try {
       // 1. Tạo Blob cho File 1 (Kế hoạch mở lớp)
@@ -192,7 +171,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
       shPlan.addRow([
         'STT', 'Mã môn', 'Tên học phần', 'Sĩ số', 'Khóa',
         'Số lớp mở', 'Tuần bắt đầu', 'Tiết BĐ', 'Số tiết',
-        'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'
+        'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Số tín chỉ'
       ]);
       validPlans.forEach((p, idx) => {
         const dayMarks = [2, 3, 4, 5, 6, 7].map(d => Number(p.dayOfWeek) === d ? 'x' : '');
@@ -206,7 +185,8 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
           Number(p.startWeek) || 1,
           Number(p.startPeriod) || 1,
           Number(p.numPeriods) || 3,
-          ...dayMarks
+          ...dayMarks,
+          p.credits === '' || p.credits == null ? null : Number(p.credits)
         ]);
       });
       const planBlob = new Blob([await wbPlan.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -271,13 +251,13 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
           </p>
         </div>
         <div className="template-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button type="button" className="button" disabled={busy} onClick={downloadPlanTemplate}>
+          <button type="button" className="button" disabled={busy || exporting} onClick={downloadPlanTemplate}>
             <Download size={15} /> 1. Mẫu Kế hoạch mở lớp
           </button>
-          <button type="button" className="button" disabled={busy} onClick={downloadTeacherTemplate}>
+          <button type="button" className="button" disabled={busy || exporting} onClick={downloadTeacherTemplate}>
             <Download size={15} /> 2. Mẫu DS Giảng viên
           </button>
-          <button type="button" className="button" disabled={busy} onClick={downloadRoomTemplate}>
+          <button type="button" className="button" disabled={busy || exporting} onClick={downloadRoomTemplate}>
             <Download size={15} /> 3. Mẫu DS Phòng học
           </button>
         </div>
@@ -290,7 +270,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
       </div>
 
       <form onSubmit={handleExcelSubmit}>
-        <fieldset disabled={busy} className="import-fields">
+        <fieldset disabled={busy || exporting} className="import-fields">
           <label>
             Mã trường cần xếp lịch
             <input value={schoolId} onChange={e => setSchoolId(e.target.value)} required placeholder="PTIT" />
@@ -337,7 +317,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
         </fieldset>
 
         <div className="import-actions" style={{ marginTop: '0.75rem' }}>
-          <button type="submit" className="button primary" disabled={busy || !planFile}>
+          <button type="submit" className="button primary" disabled={busy || exporting || !planFile}>
             <Upload size={16} /> {busy ? 'Máy chủ đang phân tích 3 file & xếp phòng…' : 'Tải 3 File Excel & Chạy xếp lịch tự động'}
           </button>
         </div>
@@ -356,6 +336,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
                 <tr>
                   <th>Mã môn</th>
                   <th>Tên học phần</th>
+                  <th>Số tín chỉ</th>
                   <th>Sĩ số</th>
                   <th>Khóa</th>
                   <th>Số lớp</th>
@@ -371,6 +352,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
                   <tr key={idx}>
                     <td><input value={row.courseCode} onChange={e => setManualPlans(prev => prev.map((r, i) => i === idx ? { ...r, courseCode: e.target.value } : r))} style={{ width: '105px' }} /></td>
                     <td><input value={row.courseName} onChange={e => setManualPlans(prev => prev.map((r, i) => i === idx ? { ...r, courseName: e.target.value } : r))} style={{ width: '160px' }} /></td>
+                    <td><input type="number" min={1} max={30} value={row.credits ?? ''} onChange={e => setManualPlans(prev => prev.map((r, i) => i === idx ? { ...r, credits: e.target.value } : r))} style={{ width: '70px' }} /></td>
                     <td><input type="number" min={10} max={300} value={row.classSize} onChange={e => setManualPlans(prev => prev.map((r, i) => i === idx ? { ...r, classSize: e.target.value } : r))} style={{ width: '70px' }} /></td>
                     <td><input value={row.cohort} onChange={e => setManualPlans(prev => prev.map((r, i) => i === idx ? { ...r, cohort: e.target.value } : r))} style={{ width: '70px' }} /></td>
                     <td><input type="number" min={1} max={10} value={row.numClasses} onChange={e => setManualPlans(prev => prev.map((r, i) => i === idx ? { ...r, numClasses: e.target.value } : r))} style={{ width: '60px' }} /></td>
@@ -471,7 +453,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
             <button type="button" className="button" onClick={() => setManualRooms(prev => [...prev, { roomCode: '', roomType: 'THEORY', capacity: 60, building: 'A2' }])}>
               <Plus size={15} /> Thêm Phòng học
             </button>
-            <button type="submit" className="button primary" disabled={busy}>
+            <button type="submit" className="button primary" disabled={busy || exporting}>
               <RefreshCw size={16} /> {busy ? 'Đang chạy thuật toán…' : 'Xếp lịch từ 3 bảng dữ liệu trên'}
             </button>
           </div>
@@ -486,6 +468,8 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
       )}
 
       {/* ==================== BẢNG KẾT QUẢ PHÂN CÔNG HOÀN CHỈNH ==================== */}
+      {exportError && <p role="alert" className="error-text">{exportError}</p>}
+      {result?.scheduledClasses?.some(slot => slot.credits == null) && <p className="info-banner">Một số môn chưa có số tín chỉ; cột này sẽ để trống trong Excel.</p>}
       {result && (
         <div className="import-preview" style={{ marginTop: '1.5rem' }}>
           <div className="panel-title">
@@ -496,7 +480,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
               </p>
             </div>
             <div className="template-actions">
-              <button type="button" className="button primary" onClick={exportResultToExcel}>
+              <button type="button" className="button primary" disabled={busy || exporting || !result.scheduledClasses?.length} onClick={exportResultToExcel}>
                 <Download size={16} /> Xuất Bảng Phân Công Hoàn Chỉnh (.xlsx)
               </button>
             </div>

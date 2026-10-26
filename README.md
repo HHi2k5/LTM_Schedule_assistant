@@ -1,12 +1,14 @@
 ﻿# Schedule Assistant
 
-Ứng dụng nhập và tổng hợp lịch giảng dạy có sẵn từ Excel hoặc JSON. Yêu cầu nghiệp vụ: `document/requirement.md`.
+Ứng dụng nhập lịch giảng dạy từ Excel, tổng hợp lịch cá nhân và xếp lịch toàn trường theo vai trò. Yêu cầu nghiệp vụ: `document/requirement.md`.
 
 ## Chạy toàn bộ bằng Docker Desktop
 
 Mở Docker Desktop rồi chạy `docker compose up -d --build` tại thư mục gốc. Truy cập http://localhost:8088. Xem [hướng dẫn Docker](DOCKER.md) để cấu hình, xem log và chia sẻ qua ngrok.
 
 ## Chạy frontend React
+
+Phân quyền TEACHER/ADMIN, cấp tài khoản quản lý và tải Excel kết quả: [hướng dẫn sử dụng](document/phan-quyen-va-xuat-excel.md).
 
 Yêu cầu Node.js 20.19+ hoặc 22.12+.
 
@@ -26,8 +28,9 @@ npm.cmd run preview
 
 ## Chức năng
 
-- Nhập lịch bằng file Excel (.xlsx) hoặc JSON (.json), có mẫu tải về, kiểm tra dữ liệu và xem trước khi lưu.
-- JSON tự điền giảng viên, trường, mốc tuần và màu hiển thị theo cấu trúc backend.
+- Giảng viên nhập Excel (.xlsx), xem trước rồi lưu lịch của chính mình.
+- Quản lý xếp lịch toàn trường và tải Excel kết quả gồm cấu trúc mẫu cùng mã/tên giảng viên.
+- Đăng nhập bằng token; quyền TEACHER/ADMIN và quyền sở hữu lịch được kiểm tra tại backend.
 - Lịch tuần, chuyển tuần, danh sách, tìm kiếm và lọc theo trường từ dữ liệu backend.
 - Tổng hợp nhiều trường, chi tiết buổi dạy, cảnh báo trùng giờ và vị trí theo phút thực tế.
 - Xuất lịch tuần dưới dạng .ics; nhập với múi giờ Việt Nam.
@@ -35,6 +38,6 @@ npm.cmd run preview
 
 ## Phạm vi
 
-Frontend dùng React, Vite và Lucide. Excel được đọc bằng ExcelJS; Excel và JSON dùng chung kiểm tra giờ, tiết và tuần trước khi gửi JSON tới `POST /api/schedule/upload-school`. Lịch tuần được tải từ backend; localStorage chỉ nhớ mã giảng viên và bảng tiết tham chiếu trên thiết bị. Font Be Vietnam Pro tải từ Google Fonts, có font hệ thống dự phòng.
+Frontend dùng React, Vite, Lucide và ExcelJS. File lịch cá nhân được gửi tới `POST /api/schedule/upload-excel-teacher`; phân công toàn trường gửi tới `POST /api/schedule/auto-generate-excel`. Lịch tuần lấy từ backend; localStorage chỉ nhớ lựa chọn và bảng tiết tham chiếu. Token ở sessionStorage, quyền kiểm tra theo tài khoản trên server. Font Be Vietnam Pro tải từ Google Fonts, có font hệ thống dự phòng.
 
-Chạy backend ở cổng 8080 và MySQL theo cấu hình server để lưu/xem lịch. Frontend đã tích hợp API lịch; đăng nhập, phân quyền, nghỉ/dạy bù và validation đầy đủ phía backend cần bổ sung. Xem [hướng dẫn frontend](frontend/README.md) để biết định dạng file và cách cấu hình API.
+Chạy backend ở cổng 8080 và MySQL theo cấu hình server, hoặc dùng Docker ở cổng 8088. Nghỉ/dạy bù chưa nằm trong phạm vi hiện tại. Xem [hướng dẫn frontend](frontend/README.md) để biết định dạng file và cách cấu hình API.

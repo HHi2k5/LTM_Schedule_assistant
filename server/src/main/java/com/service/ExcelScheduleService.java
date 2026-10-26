@@ -126,7 +126,89 @@ public class ExcelScheduleService {
             String schoolId,
             String schoolName,
             LocalDate semesterStartDate) throws Exception {
-        return autoScheduleFrom3Files(file, null, null, schoolId, schoolName, semesterStartDate);
+
+        LocalDate resolvedStart = semesterStartDate != null ? semesterStartDate : LocalDate.of(2026, 8, 10);
+        if (resolvedStart.getDayOfWeek() != DayOfWeek.MONDAY) {
+            throw new IllegalArgumentException("Ngày bắt đầu tuần 1 phải là Thứ Hai.");
+        }
+        Map<String, CourseDemandDTO> demands = new LinkedHashMap<>();
+
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = new XSSFWorkbook(is)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            DataFormatter formatter = new DataFormatter();
+
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                String courseRaw = getCellText(row, 0, formatter);
+                String teacherRaw = getCellText(row, 1, formatter);
+                String classesText = getCellText(row, 2, formatter);
+                int numClasses = classesText.isBlank() ? 4 : parseIntSafe(classesText, -1);
+
+                if (courseRaw.isBlank() || teacherRaw.isBlank()) continue;
+                if (numClasses < 1 || numClasses > 8) throw new IllegalArgumentException("Dòng " + (i + 1) + ": số lớp phải từ 1 đến 8.");
+                String courseCode = getCellText(row, 3, formatter);
+                String creditsText = getCellText(row, 4, formatter);
+                Integer credits = creditsText.isBlank() ? null : parseIntSafe(creditsText, -1);
+                if (credits != null && (credits < 1 || credits > 30)) throw new IllegalArgumentException("Dòng " + (i + 1) + ": số tín chỉ phải từ 1 đến 30.");
+
+                String teacherId = extractTeacherId(teacherRaw);
+                String teacherName = extractTeacherName(teacherRaw);
+
+                String key = courseCode.isBlank() ? "name:" + courseRaw : "code:" + courseCode;
+                CourseDemandDTO demand = demands.computeIfAbsent(key, ignored -> CourseDemandDTO.builder()
+                        .courseCode(courseCode).courseName(courseRaw).credits(credits)
+                        .teachers(new ArrayList<>()).build());
+                if (!courseRaw.equals(demand.getCourseName()) || (credits != null && demand.getCredits() != null && !credits.equals(demand.getCredits()))) {
+                    throw new IllegalArgumentException("Dòng " + (i + 1) + ": thông tin môn học không thống nhất.");
+                }
+                if (demand.getCredits() == null) demand.setCredits(credits);
+                if (demand.getTeachers().stream().anyMatch(t -> t.getTeacherId().equals(teacherId))) {
+                    throw new IllegalArgumentException("Dòng " + (i + 1) + ": giảng viên bị lặp trong cùng môn học.");
+                }
+                demand.getTeachers().add(TeacherCandidateDTO.builder()
+                        .teacherId(teacherId)
+                        .teacherName(teacherName)
+                        .assignedClasses(numClasses)
+                        .build());
+
+                demand.setTotalClassesToOpen(demand.getTotalClassesToOpen() + numClasses);
+            }
+        }
+
+        List<CourseDemandDTO> courseDemands = new ArrayList<>(demands.values());
+        if (courseDemands.isEmpty()) throw new IllegalArgumentException("File phân công chưa có môn học và giảng viên hợp lệ.");
+        Set<String> usedCodes = new HashSet<>();
+        courseDemands.forEach(d -> { if (!d.getCourseCode().isBlank()) usedCodes.add(d.getCourseCode()); });
+        int codeIndex = 1;
+        for (CourseDemandDTO demand : courseDemands) {
+            if (demand.getCourseCode().isBlank()) {
+                String generated;
+                do { generated = String.format("MH%03d", codeIndex++); } while (usedCodes.contains(generated));
+                demand.setCourseCode(generated);
+                usedCodes.add(generated);
+            }
+        }
+
+        SchoolConfigDTO targetSchool = SchoolConfigDTO.builder()
+                .schoolId(schoolId != null ? schoolId : "PTIT")
+                .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
+                .colorCode("#dc2626")
+                .periods(getDefault12Periods())
+                .build();
+
+        SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
+                .semesterStartDate(resolvedStart)
+                .totalWeeks(16)
+                .buildingSuffix("A2")
+                .targetSchool(targetSchool)
+                .courses(courseDemands)
+                .build();
+
+        return autoScheduleService.generateSchoolWideSchedule(request);
     }
 
     /**
@@ -143,6 +225,10 @@ public class ExcelScheduleService {
             String schoolId,
             String schoolName,
             LocalDate semesterStartDate) throws Exception {
+        LocalDate resolvedStart = semesterStartDate != null ? semesterStartDate : LocalDate.of(2026, 8, 10);
+        if (resolvedStart.getDayOfWeek() != DayOfWeek.MONDAY) {
+            throw new IllegalArgumentException("Ngày bắt đầu tuần 1 phải là Thứ Hai.");
+        }
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
@@ -163,7 +249,7 @@ public class ExcelScheduleService {
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
-                .semesterStartDate(semesterStartDate != null ? semesterStartDate : LocalDate.of(2026, 8, 10))
+                .semesterStartDate(resolvedStart)
                 .totalWeeks(16)
                 .buildingSuffix("A2")
                 .targetSchool(targetSchool)
@@ -191,6 +277,7 @@ public class ExcelScheduleService {
 
             // Mặc định vị trí cột theo đúng ảnh chụp màn hình:
             // [0] STT | [1] Mã môn | [2] Tên học phần | [3] Sĩ số | [4] Khóa | [5] Số lớp mở | [6] Tuần BĐ | [7] Số tiết
+            int colCredits = -1;
             int colStt = 0;
             int colCode = 1;
             int colName = 2;
@@ -212,7 +299,8 @@ public class ExcelScheduleService {
                     String header = getCellText(row, c, formatter).toLowerCase();
                     if (header.isBlank()) continue;
 
-                    if (header.equals("stt")) { colStt = c; headerRowIdx = r; }
+                    if (header.contains("tín chỉ") || header.equals("credits")) { colCredits = c; headerRowIdx = r; }
+                    else if (header.equals("stt")) { colStt = c; headerRowIdx = r; }
                     else if (header.contains("mã môn") || header.contains("mã hp")) { colCode = c; headerRowIdx = r; }
                     else if (header.contains("tên học phần") || header.contains("tên môn")) { colName = c; headerRowIdx = r; }
                     else if (header.contains("sĩ số")) { colSize = c; }
@@ -259,6 +347,11 @@ public class ExcelScheduleService {
                     continue;
                 }
 
+                String creditsText = colCredits < 0 ? "" : getCellText(row, colCredits, formatter);
+                Integer credits = creditsText.isBlank() ? null : parseIntSafe(creditsText, -1);
+                if (credits != null && (credits < 1 || credits > 30)) {
+                    throw new IllegalArgumentException("Dòng " + (i + 1) + ": số tín chỉ phải từ 1 đến 30.");
+                }
                 int classSize = parseIntSafe(classSizeStr, 50);
                 String cohort = getCellText(row, colCohort, formatter);
                 int numClasses = Math.max(1, parseIntSafe(getCellText(row, colNumClasses, formatter), 1));
@@ -326,6 +419,7 @@ public class ExcelScheduleService {
                 }
 
                 demands.add(CourseDemandDTO.builder()
+                        .credits(credits)
                         .stt(sttStr.isBlank() ? String.valueOf(demands.size() + 1) : sttStr)
                         .courseCode(courseCode)
                         .courseName(courseName)
@@ -613,7 +707,7 @@ public class ExcelScheduleService {
     }
 
     private String extractTeacherId(String raw) {
-        if (raw.contains("-")) return raw.split("-")[0].trim();
+        if (raw.contains("-")) return raw.split("-")[0].trim().toUpperCase(Locale.ROOT);
         return "GV_" + raw.toUpperCase().replaceAll("\\s+", "");
     }
 

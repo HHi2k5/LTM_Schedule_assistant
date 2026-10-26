@@ -17,6 +17,10 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import com.security.AccountPrincipal;
+import com.security.ScheduleAccess;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.authentication.BadCredentialsException;
 
 @RestController
 @RequestMapping("/api/schedule")
@@ -29,6 +33,7 @@ public class ScheduleController {
     private final ExcelScheduleService excelScheduleService;
     private final com.service.AuthService authService;
     private final RoomRepository roomRepository;
+    private final ScheduleAccess scheduleAccess;
 
     // 1. Giảng viên up file Excel lịch trường (nếu up lại cùng schoolId sẽ tự đè lịch mới)
     @PostMapping(value = "/upload-excel-teacher", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -41,6 +46,7 @@ public class ScheduleController {
             @RequestParam(value = "colorCode", defaultValue = "#2563eb") String colorCode,
             @RequestParam(value = "semesterStartDate", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate semesterStartDate) {
+        scheduleAccess.requireTeacherAccess(teacherId);
         try {
             excelScheduleService.importTeacherScheduleFromExcel(
                     file, teacherId, teacherName, schoolId, schoolName, colorCode, semesterStartDate);
@@ -58,6 +64,7 @@ public class ScheduleController {
     public ResponseEntity<?> deleteSchoolSchedule(
             @RequestParam("teacherId") String teacherId,
             @RequestParam("schoolId") String schoolId) {
+        scheduleAccess.requireTeacherAccess(teacherId);
         scheduleService.deleteSchoolSchedule(teacherId, schoolId);
         return ResponseEntity.ok(Map.of(
                 "status", "SUCCESS",
@@ -86,8 +93,11 @@ public class ScheduleController {
                 ));
             }
 
-            AutoScheduleResponse response = excelScheduleService.autoScheduleFrom3Files(
-                    mainPlanFile, teacherFile, roomFile, schoolId, schoolName, semesterStartDate);
+            AutoScheduleResponse response = planFile != null && !planFile.isEmpty()
+                    ? excelScheduleService.autoScheduleFrom3Files(
+                            mainPlanFile, teacherFile, roomFile, schoolId, schoolName, semesterStartDate)
+                    : excelScheduleService.autoScheduleFromExcel(
+                            legacyFile, schoolId, schoolName, semesterStartDate);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
@@ -105,6 +115,7 @@ public class ScheduleController {
     public ResponseEntity<WeekScheduleResponse> getWeekSchedule(
             @PathVariable int weekIndex,
             @RequestParam(defaultValue = "GV01") String teacherId) {
+        scheduleAccess.requireTeacherAccess(teacherId);
         return ResponseEntity.ok(scheduleService.getWeeklySchedule(teacherId, weekIndex));
     }
 
@@ -123,8 +134,15 @@ public class ScheduleController {
     public ResponseEntity<?> login(@RequestBody com.dto.AuthRequest request) {
         try {
             return ResponseEntity.ok(authService.login(request));
+        } catch (BadCredentialsException e) {
+            return ResponseEntity.status(401).body(Map.of("status", "ERROR", "message", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
         }
+    }
+
+    @GetMapping("/auth/me")
+    public ResponseEntity<?> current(@AuthenticationPrincipal AccountPrincipal account) {
+        return ResponseEntity.ok(authService.current(account));
     }
 }

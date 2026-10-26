@@ -81,7 +81,7 @@ export default function ImportSchedule({ teacherId, semesterStart, onImported })
     setReading(true);
     try {
       const { parseWorkbook } = await import('./excel');
-      const payload = buildUpload(await parseWorkbook(await file.arrayBuffer()), metadata, probe.start || metadata.semesterStartDate);
+      const payload = buildUpload(await parseWorkbook(await file.arrayBuffer(), metadata.semesterStartDate), metadata, probe.start || metadata.semesterStartDate);
       if (id === generation.current) setPreview(payload);
     } catch (err) { 
       if (id === generation.current) setError(err.message); 
@@ -151,7 +151,7 @@ export default function ImportSchedule({ teacherId, semesterStart, onImported })
       <div className="import-steps"><span>1. Chọn file Excel & điền thông tin</span><span>2. Kiểm tra dữ liệu đọc</span><span>3. Xác nhận lưu vào CSDL</span></div>
       <form onSubmit={inspect}>
         <fieldset disabled={busy || reading} className="import-fields">
-          <label>Mã giảng viên<input name="teacherId" value={metadata.teacherId} onChange={change} maxLength={50} required placeholder="GV01"/></label>
+          <label>Mã giảng viên<input name="teacherId" value={metadata.teacherId} readOnly maxLength={50} required placeholder="GV01"/></label>
           <label>Họ tên giảng viên<input name="teacherName" value={metadata.teacherName} onChange={change} maxLength={150} required placeholder="Đào Ngọc Phong"/></label>
           <label>Mã trường<input name="schoolId" value={metadata.schoolId} onChange={change} maxLength={50} required placeholder="PTIT"/></label>
           <label>Tên trường<input name="schoolName" value={metadata.schoolName} onChange={change} maxLength={150} required placeholder="Học viện Công nghệ Bưu chính Viễn thông"/></label>

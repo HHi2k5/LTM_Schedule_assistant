@@ -11,6 +11,7 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class CourseDemandDTO {
+    private Integer credits;
     private String stt;                    // STT dòng trong kế hoạch mở lớp
     private String courseCode;             // VD: "61FIT3DBS"
     private String courseName;             // VD: "Cơ sở dữ liệu"

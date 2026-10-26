@@ -11,6 +11,10 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class AutoScheduleResponse {
+    private String schoolId;
+    private String schoolName;
+    private java.time.LocalDate semesterStartDate;
+    private List<PeriodTimeDTO> periods;
     private String status;
     private String message;
     private int totalRoomsAvailable;

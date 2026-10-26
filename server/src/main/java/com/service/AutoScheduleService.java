@@ -254,6 +254,10 @@ public class AutoScheduleService {
         }
 
         return AutoScheduleResponse.builder()
+                .schoolId(request.getTargetSchool().getSchoolId())
+                .schoolName(request.getTargetSchool().getSchoolName())
+                .semesterStartDate(request.getSemesterStartDate())
+                .periods(request.getTargetSchool().getPeriods())
                 .status(warnings.isEmpty() ? "SUCCESS" : "PARTIAL_SUCCESS")
                 .message("Đã hoàn tất xếp lịch tự động: Chia đều lớp cho Giảng viên (gom gọn 1-2 ngày), chọn phòng theo Sĩ số và tách Tổ Thực hành!")
                 .totalRoomsAvailable(allRooms.size())
@@ -403,6 +407,8 @@ public class AutoScheduleService {
                 typeTag, course.getCourseName(), cohort, groupName, studentCount);
 
         outputList.add(GeneratedClassSlot.builder()
+                .baseCourseName(course.getCourseName())
+                .credits(course.getCredits())
                 .teacherId(teacher.getTeacherId())
                 .teacherName(teacher.getTeacherName())
                 .courseCode(course.getCourseCode())
