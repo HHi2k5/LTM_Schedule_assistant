@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  base: './',
   server: {
+    host: true,
     allowedHosts: ['viewing-express-blip.ngrok-free.dev', 'passably-morse-acuteness.ngrok-free.dev'],
     proxy: {
       '/api': {

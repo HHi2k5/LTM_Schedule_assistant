@@ -104,6 +104,7 @@ export default function ImportSchedule({ teacherId, semesterStart, onImported })
       formData.append('colorCode', metadata.colorCode);
       formData.append('semesterStartDate', metadata.semesterStartDate);
 
+      // Sử dụng hàm api đã cấu hình sẵn để tự nhận diện domain hiện tại (kể cả ngrok)
       const result = await api('/upload-excel-teacher', {
         method: 'POST',
         body: formData,

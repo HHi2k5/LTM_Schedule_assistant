@@ -70,7 +70,6 @@ export default function App() {
     return () => controller.abort();
   }, [teacherId, week, revision]);
 
-  // Nếu chưa đăng nhập -> Hiển thị màn hình Đăng nhập / Đăng ký
   if (!authUser) {
     return (
       <AuthPage
@@ -141,7 +140,7 @@ export default function App() {
       <span className="nav-label">KHÔNG GIAN LÀM VIỆC</span>
       <nav>{nav.map(([id, label, Icon]) => <button key={id} onClick={() => navigate(id)} className={`nav-item ${page === id ? 'active' : ''}`}><Icon size={20}/><span>{label}</span></button>)}</nav>
       <div className="sidebar-bottom">
-        <div className="semester-card"><CalendarDays size={20}/><strong>Lịch có sẵn, luôn bên bạn.</strong><p>Nhập lịch từ Excel hoặc xếp lịch tự động toàn trường vào 35 phòng học.</p></div>
+        <div className="semester-card"><CalendarDays size={20}/><strong>Lịch có sẵn, luôn bên bạn.</strong><p>Nhập lịch từ Excel hoặc xếp lịch tự động toàn trường theo Sĩ số & Tổ thực hành.</p></div>
         <button className="nav-item" onClick={() => navigate('settings')}><Settings size={19}/>Cài đặt</button>
         <button className="nav-item" onClick={() => navigate('help')}><HelpCircle size={19}/>Trợ giúp & hỗ trợ</button>
         <button className="nav-item" onClick={handleLogout}><LogOut size={19}/>Đăng xuất</button>
@@ -149,7 +148,7 @@ export default function App() {
       </div>
     </aside>
     <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" aria-label="Mở điều hướng" onClick={() => setMobileOpen(true)}><Menu size={22}/></button><span>Không gian giảng viên</span><ChevronRight size={14}/><strong>{titles[page]}</strong></div><span className="today-label">{new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'full' }).format(new Date())}</span></header>
-    <main><div className="page-heading"><div><div className="eyebrow"><span/> LỊCH GIẢNG DẠY CỦA BẠN</div><h1>{titles[page]}<span className="heading-dot">.</span></h1><p>Nhập lịch đã được phân công hoặc tự động xếp lịch toàn trường.</p></div><div style={{ display: 'flex', gap: '8px' }}>{page !== 'import' && <button className="button" onClick={() => navigate('import')}><Upload size={18}/>Nhập lịch cá nhân</button>}{page !== 'autoschedule' && <button className="button primary" onClick={() => navigate('autoschedule')}><Sparkles size={18}/>Xếp lịch toàn trường</button>}</div></div>
+    <main><div className="page-heading"><div><div className="eyebrow"><span/> LỊCH GIẢNG DẠY CỦA BẠN</div><h1>{titles[page]}<span className="heading-dot">.</span></h1><p>Nhập lịch đã được phân công hoặc tự động xếp lịch toàn trường từ 3 file Excel.</p></div><div style={{ display: 'flex', gap: '8px' }}>{page !== 'import' && <button className="button" onClick={() => navigate('import')}><Upload size={18}/>Nhập lịch cá nhân</button>}{page !== 'autoschedule' && <button className="button primary" onClick={() => navigate('autoschedule')}><Sparkles size={18}/>Xếp lịch toàn trường</button>}</div></div>
     {storageError && <div role="alert" className="info-banner">Không lưu được lựa chọn trên trình duyệt. Lịch đã nhập vẫn được lưu ở máy chủ.</div>}
     {page !== 'import' && page !== 'autoschedule' && page !== 'help' && <form className="teacher-picker" onSubmit={useTeacher}><label>Mã giảng viên<input value={teacherInput} onChange={event => setTeacherInput(event.target.value)} placeholder="Ví dụ: GV01" required maxLength={50}/></label><button className="button" disabled={loading}><RefreshCw size={15}/>Tải lịch</button><span className="muted-text">{semesterStart ? `Tuần 1 bắt đầu ${dateLabel(semesterStart)}` : 'Nhập mã để xem lịch đã lưu trên máy chủ.'}</span></form>}
     {(page === 'schedule' || page === 'overview') && <>
@@ -185,15 +184,25 @@ export default function App() {
     {page === 'autoschedule' && (
       <AutoSchedulePage
         semesterStart={semesterStart}
-        onScheduled={() => {
+        onScheduled={res => {
           setRevision(v => v + 1);
-          setToast('Đã xếp lịch toàn trường vào 35 phòng học thành công!');
+          setToast(`Đã xếp lịch tự động thành công (${res?.totalClassesScheduled || 0} ca học)!`);
+        }}
+        onViewTeacherSchedule={selectedTeacherId => {
+          setTeacherId(selectedTeacherId);
+          setTeacherInput(selectedTeacherId);
+          setWeek(2); // Tuần 2 có đầy đủ cả Lý thuyết và Thực hành
+          setSchoolFilter('all');
+          setQuery('');
+          setRevision(v => v + 1);
+          navigate('schedule');
+          setToast(`Đang xem thời khóa biểu của giảng viên ${selectedTeacherId}`);
         }}
       />
     )}
     {page === 'courses' && <section className="standalone-panel"><h2>Môn dạy trong tuần {week}</h2>{loading ? <Empty text="Đang tải…"/> : error ? <p role="alert" className="error-text">{error}</p> : !lessons.length ? <Empty text="Chưa có môn dạy trong tuần này."/> : <div className="session-list">{lessons.map(lesson => <button className="session-row" key={lesson.id} onClick={() => setSelected(lesson)}><BookOpen size={20}/><div><strong>{lesson.courseName}</strong><small>{lesson.schoolName} · {dateLabel(lesson.date)} · Phòng {lesson.room}</small></div><span>Tiết {lesson.startPeriod}–{lesson.endPeriod}</span></button>)}</div>}</section>}
     {page === 'settings' && <section className="standalone-panel"><h2>Tài khoản & Kết nối lịch</h2><p className="muted-text">Đang đăng nhập: <strong>{authUser.fullName}</strong> (Username: <code>{authUser.username}</code> · Mã GV: <code>{authUser.teacherId}</code>).</p><div className="info-banner">Nhập lại cùng mã trường sẽ thay toàn bộ lịch của trường đó. Bạn cũng có thể xóa lịch từng trường ở cột bên phải màn hình Lịch giảng dạy.</div></section>}
-    {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2><details open><summary>1. Giảng viên nhập lịch cá nhân (Excel 9 cột)</summary><p>Vào mục Nhập lịch dạy, chọn file Excel thời khóa biểu của trường. Nếu muốn đổi lịch trường cũ, bạn có thể xóa trường đó hoặc tải file mới đè lên cùng mã trường.</p></details><details open><summary>2. Nhà trường xếp lịch tự động (35 phòng học)</summary><p>Vào mục Xếp lịch toàn trường, tải lên file Excel gồm Cột 1 là Môn học, Cột 2 là Giảng viên. Server tự động phân bổ vào 35 phòng (Tầng 1–7), tránh lịch trường khác, gom 1–2 ngày/môn (tối đa 4 lớp/ngày) và tự đảo tiết 3 ↔ 2 giữa kỳ.</p></details></section>}
+    {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2><details open><summary>1. Giảng viên nhập lịch cá nhân (Excel 9 cột)</summary><p>Vào mục Nhập lịch dạy, chọn file Excel thời khóa biểu của trường. Nếu muốn đổi lịch trường cũ, bạn có thể xóa trường đó hoặc tải file mới đè lên cùng mã trường.</p></details><details open><summary>2. Nhà trường xếp lịch tự động từ 3 File Excel</summary><p>Vào mục Xếp lịch toàn trường, tải lên 3 file Excel: (1) Kế hoạch mở lớp (có Sĩ số, Khóa, Thứ, Tiết BĐ, Số tiết), (2) Danh sách Giảng viên - Môn học - Khóa, và (3) Danh sách Phòng học (Lý thuyết & Thực hành LAB). Hệ thống tự động chia đều lớp cho giảng viên, gom lịch dạy gọn trong 1–2 ngày, chọn phòng theo sĩ số (Best-Fit) và tách Tổ thực hành vào các phòng LAB khác nhau.</p></details></section>}
     <footer className="page-footer"><span>Campus · Không gian giảng dạy của bạn</span><span><i/>Hệ thống quản lý & xếp lịch tự động</span></footer></main></div>
     {selected && <LessonModal lesson={selected} onClose={() => setSelected(null)}/>}
     {toast && <div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button aria-label="Đóng thông báo" onClick={() => setToast('')}><X size={16}/></button></div>}
