@@ -7,8 +7,8 @@ const anchor = '2026-08-10';
 const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const slot = { teacherId: 'GV01', teacherName: 'Nguyễn Văn A', courseCode: 'NET', courseName: 'Mạng máy tính', baseCourseName: 'Mạng máy tính', classGroup: '01', cohort: '2024', credits: 3, sessionType: 'THEORY', studentCount: 50, room: '101', roomCapacity: 60, dayOfWeek: 2, startPeriod: 1, numPeriods: 1, weekSchedule: '---11' };
 
-async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures = 0 } = {}) {
-  const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, emptyAuto: false, restoreFailures, roomCount: 1 };
+async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures = 0, lessons = [], schools } = {}) {
+  const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, emptyAuto: false, restoreFailures, roomCount: 1, lessons, schools };
   const user = { role, teacherId: role === 'ADMIN' ? 'ADMIN' : teacherId, username: role.toLowerCase(), fullName: role === 'ADMIN' ? 'Quản lý đào tạo' : 'Nguyễn Văn A', semesterStartDate: anchor };
   if (!anonymous) await page.addInitScript(() => sessionStorage.setItem('campus-access-token', 'test-token'));
   await page.route('https://fonts.googleapis.com/**', route => route.abort());
@@ -38,7 +38,7 @@ async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures
     if (path.startsWith('/week/')) {
       const week = Number(path.split('/').at(-1));
       const startDate = addDays(anchor, (week - 1) * 7);
-      return respond({ teacherId: url.searchParams.get('teacherId'), weekIndex: week, startDate, endDate: addDays(startDate, 6), lessons: [] });
+      return respond({ teacherId: url.searchParams.get('teacherId'), weekIndex: week, startDate, endDate: addDays(startDate, 6), lessons: state.lessons, schools: state.schools });
     }
     return respond({ message: `Unexpected API: ${path}` }, 404);
   });
@@ -70,6 +70,42 @@ async function runManual(page) {
   await page.getByText('Hoặc nhập/chỉnh sửa nhanh', { exact: false }).click();
   await page.getByRole('button', { name: 'Xếp lịch từ 3 bảng dữ liệu trên' }).click();
 }
+
+test('weekly calendar shows every server period after reload and uses each reference school real times', async ({ page }, testInfo) => {
+  const periods = Array.from({ length: 12 }, (_, i) => {
+    const hour = String(7 + i + (i >= 5 ? 1 : 0)).padStart(2, '0');
+    return { period: i + 1, start: `${hour}:00`, end: `${hour}:50` };
+  });
+  const schools = [
+    { schoolId: 'PTIT', schoolName: 'PTIT', periods },
+    { schoolId: 'OTHER', schoolName: 'Other school', periods: [{ period: 1, start: '07:20', end: '08:10' }, { period: 2, start: '08:30', end: '09:20' }] },
+  ];
+  const lessons = [
+    { schoolId: 'PTIT', schoolName: 'PTIT', courseName: 'Networking', room: '101', dayOfWeek: 2, date: anchor, startPeriod: 4, endPeriod: 6, startTime: '10:00', endTime: '13:50' },
+    { schoolId: 'OTHER', schoolName: 'Other school', courseName: 'Algorithms', room: '201', dayOfWeek: 3, date: addDays(anchor, 1), startPeriod: 1, endPeriod: 1, startTime: '07:20', endTime: '08:10' },
+  ];
+  await boot(page, { lessons, schools });
+  const axis = page.locator('.time-axis > span');
+  const expected = periods.map(period => String(period.period));
+  await expect(axis).toHaveText(expected);
+  await expect(axis.nth(5)).toHaveAttribute('title', '13:00 – 13:50');
+  expect(await axis.nth(5).evaluate(element => parseFloat(element.style.top))).toBeCloseTo(399);
+  const networking = page.locator('.session-card').filter({ hasText: 'Networking' });
+  expect(await networking.evaluate(element => parseFloat(element.style.top))).toBeCloseTo(200);
+
+  // An old browser import must not replace the current period table from the server.
+  await page.evaluate(id => localStorage.setItem('campus-period-configs', JSON.stringify({ [id]: { PTIT: { periods: [{ period: 99, start: '06:00', end: '06:50' }] } } })), teacherId);
+  await page.reload();
+  await expect(axis).toHaveText(expected);
+  await expect(axis.first()).toHaveAttribute('title', '07:00 – 07:50');
+  await screenshot(page, testInfo, 'complete-period-axis');
+
+  await page.getByLabel('Tiết tham chiếu', { exact: false }).selectOption('OTHER');
+  await expect(axis).toHaveText(['1', '2']);
+  await expect(axis.first()).toHaveAttribute('title', '07:20 – 08:10');
+  expect(await axis.first().evaluate(element => parseFloat(element.style.top))).toBeCloseTo(25);
+  expect(await networking.evaluate(element => parseFloat(element.style.top))).toBeCloseTo(200);
+});
 
 test('header clock updates Vietnam time and date at midnight on desktop and mobile', async ({ page }, testInfo) => {
   await page.clock.install({ time: new Date('2026-10-27T16:00:00Z') });

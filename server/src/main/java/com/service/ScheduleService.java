@@ -126,6 +126,7 @@ public class ScheduleService {
         LocalDate targetSunday = targetMonday.plusDays(6);
 
         List<LessonSlot> weeklyLessons = new ArrayList<>();
+        Map<String, SchoolConfigDTO> schoolConfigs = new TreeMap<>();
         
         // Tập hợp khóa độc lập để lọc bỏ các bản ghi bị nhân bản (tránh trùng lặp trên giao diện)
         Set<Object> uniqueLessonCheck = new HashSet<>();
@@ -133,6 +134,15 @@ public class ScheduleService {
         // Duyệt qua tất cả các trường đã lưu trong DB của giảng viên
         if (teacher.getSchools() != null) {
             for (School school : teacher.getSchools()) {
+                schoolConfigs.computeIfAbsent(school.getSchoolCode(), code -> SchoolConfigDTO.builder()
+                        .schoolId(code)
+                        .schoolName(school.getSchoolName())
+                        .colorCode(school.getColorCode() != null ? school.getColorCode() : "#177c62")
+                        .periods(school.getPeriods() == null ? List.of() : school.getPeriods().stream()
+                                .sorted(Comparator.comparingInt(SchoolPeriod::getPeriodNumber))
+                                .map(period -> new PeriodTimeDTO(period.getPeriodNumber(), period.getStartTime(), period.getEndTime()))
+                                .toList())
+                        .build());
                 if (school.getCourses() == null) continue;
                 for (TeachingCourse course : school.getCourses()) {
                     String weekStr = course.getWeekSchedule();
@@ -186,6 +196,7 @@ public class ScheduleService {
                 .weekIndex(weekIndex)
                 .startDate(targetMonday)
                 .endDate(targetSunday)
+                .schools(new ArrayList<>(schoolConfigs.values()))
                 .lessons(weeklyLessons)
                 .build();
     }

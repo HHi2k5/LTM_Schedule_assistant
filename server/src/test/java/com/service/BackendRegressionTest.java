@@ -35,6 +35,34 @@ class BackendRegressionTest {
         assertEquals(2, result.getLessons().size());
         assertTrue(result.getLessons().stream().noneMatch(LessonSlot::isConflict));
     }
+    @Test void weeklyScheduleIncludesAllRealPeriodsEvenWithoutLessonsInThosePeriodsOrWeek() {
+        var a = school("A", "1");
+        a.getPeriods().clear();
+        for (var period : periods()) a.getPeriods().add(SchoolPeriod.builder()
+                .periodNumber(period.getPeriod()).startTime(period.getStart()).endTime(period.getEnd()).build());
+        var course = a.getCourses().iterator().next(); course.setStartPeriod(4); course.setNumPeriods(3);
+        var b = school("B", "-1");
+        b.getPeriods().iterator().next().setStartTime(LocalTime.of(7, 20));
+        b.getPeriods().iterator().next().setEndTime(LocalTime.of(8, 10));
+        when(teachers.findTeacherWithFullSchedule("GV01")).thenReturn(Optional.of(teacher("GV01", b, a, a)));
+
+        var result = schedules.getWeeklySchedule("GV01", 1);
+        assertEquals(1, result.getLessons().size());
+        assertEquals(4, result.getLessons().getFirst().getStartPeriod());
+        assertEquals(List.of("A", "B"), result.getSchools().stream().map(SchoolConfigDTO::getSchoolId).toList());
+        assertEquals(periods(), result.getSchools().getFirst().getPeriods());
+        assertEquals(LocalTime.of(7, 20), result.getSchools().getLast().getPeriods().getFirst().getStart());
+
+        var emptyWeek = schedules.getWeeklySchedule("GV01", 3);
+        assertTrue(emptyWeek.getLessons().isEmpty());
+        assertEquals(result.getSchools(), emptyWeek.getSchools());
+    }
+    @Test void teacherWithoutSchoolsHasEmptyPeriodTablesAndLessons() {
+        when(teachers.findTeacherWithFullSchedule("GV01")).thenReturn(Optional.of(teacher("GV01")));
+        var result = schedules.getWeeklySchedule("GV01", 1);
+        assertEquals(List.of(), result.getSchools());
+        assertEquals(List.of(), result.getLessons());
+    }
     @Test void changedAnchorIsRejectedBeforeSavingAndOldDateIsPreserved() {
         var teacher = teacher("GV01", school("A", "1"));
         when(teachers.findById("GV01")).thenReturn(Optional.of(teacher));
