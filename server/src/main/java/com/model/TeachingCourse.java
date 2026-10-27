@@ -37,4 +37,10 @@ public class TeachingCourse {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "school_id", nullable = false)
     private School school;
+
+    @Column(name = "custom_start_time")
+    private java.time.LocalTime customStartTime;
+
+    @Column(name = "custom_end_time")
+    private java.time.LocalTime customEndTime;
 }

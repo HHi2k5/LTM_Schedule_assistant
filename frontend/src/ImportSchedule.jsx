@@ -183,19 +183,34 @@ export default function ImportSchedule({ teacherId, teacherName, semesterStart, 
             <table>
               <caption>Danh sách môn học bóc tách</caption>
               <thead>
-                <tr><th>Mã môn</th><th>Tên môn học</th><th>Thứ</th><th>Tiết</th><th>Phòng</th><th>Chuỗi tuần / Thời gian</th></tr>
+                <tr>
+                  <th>Mã môn</th>
+                  <th>Tên môn học</th>
+                  <th>Thứ</th>
+                  <th>Tiết</th>
+                  <th>Giờ học (Theo file)</th>
+                  <th>Phòng</th>
+                  <th>Chuỗi tuần / Thời gian</th>
+                </tr>
               </thead>
               <tbody>
-                {preview.courses.map((course, index) => (
-                  <tr key={index}>
-                    <td>{course.courseCode}</td>
-                    <td>{course.courseName}</td>
-                    <td>{course.dayOfWeek === 8 ? 'CN' : course.dayOfWeek}</td>
-                    <td>{course.startPeriod}–{course.startPeriod + course.numPeriods - 1}</td>
-                    <td>{course.room}</td>
-                    <td><code>{course.weekSchedule}</code></td>
-                  </tr>
-                ))}
+                {preview.courses.map((course, index) => {
+                  const startP = preview.school.periods.find(p => p.period === course.startPeriod);
+                  const endP = preview.school.periods.find(p => p.period === course.startPeriod + course.numPeriods - 1);
+                  const startLabel = course.customStartTime || startP?.start || '';
+                  const endLabel = course.customEndTime || endP?.end || '';
+                  return (
+                    <tr key={index}>
+                      <td>{course.courseCode}</td>
+                      <td>{course.courseName}</td>
+                      <td>{course.dayOfWeek === 8 ? 'CN' : course.dayOfWeek}</td>
+                      <td>Tiết {course.startPeriod}–{course.startPeriod + course.numPeriods - 1} ({course.numPeriods} tiết)</td>
+                      <td><strong>{startLabel && endLabel ? `${startLabel} – ${endLabel}` : 'Theo tiết chuẩn'}</strong></td>
+                      <td>{course.room}</td>
+                      <td><code>{course.weekSchedule}</code></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

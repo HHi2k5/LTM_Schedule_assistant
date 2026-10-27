@@ -27,7 +27,7 @@ public class ScheduleService {
         ScheduleValidation.upload(request);
         scheduleAccess.requireTeacherAccess(request.getTeacherId());
         writeLock.acquire();
-        // 1. Tìm hoặc tạo mới Giảng viên
+
         Teacher teacher = teacherRepository.findById(request.getTeacherId())
                 .orElseGet(() -> Teacher.builder()
                         .teacherId(request.getTeacherId())
@@ -44,7 +44,6 @@ public class ScheduleService {
         }
         teacherRepository.save(teacher);
 
-        // 2. Tìm xem trường này đã được up trước đó chưa
         String schoolCode = request.getSchool().getSchoolId();
         School school = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacher.getTeacherId(), schoolCode)
                 .orElseGet(() -> School.builder()
@@ -55,7 +54,6 @@ public class ScheduleService {
         school.setSchoolName(request.getSchool().getSchoolName());
         school.setColorCode(request.getSchool().getColorCode());
 
-        // 3. Cập nhật khung giờ tiết (An toàn chống null tuyệt đối)
         if (school.getPeriods() == null) {
             school.setPeriods(new HashSet<>());
         } else {
@@ -73,7 +71,6 @@ public class ScheduleService {
             }
         }
 
-        // 4. Cập nhật danh sách môn học của trường này (An toàn chống null tuyệt đối)
         if (school.getCourses() == null) {
             school.setCourses(new HashSet<>());
         } else {
@@ -90,6 +87,8 @@ public class ScheduleService {
                         .startPeriod(dto.getStartPeriod())
                         .numPeriods(dto.getNumPeriods())
                         .weekSchedule(dto.getWeekSchedule())
+                        .customStartTime(dto.getCustomStartTime())
+                        .customEndTime(dto.getCustomEndTime())
                         .school(school)
                         .build());
             }
@@ -105,7 +104,7 @@ public class ScheduleService {
         School school = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacherId, schoolCode)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy lịch của trường " + schoolCode + " cho giảng viên " + teacherId));
-        
+
         Teacher teacher = school.getTeacher();
         teacher.getSchools().remove(school);
         schoolRepository.delete(school);
@@ -118,7 +117,6 @@ public class ScheduleService {
         Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
 
-        // Dự phòng an toàn chống NullPointerException nếu ngày khai giảng bị null
         LocalDate mondayOfWeek1 = teacher.getSemesterStartDate();
         ScheduleValidation.monday(mondayOfWeek1);
 
@@ -127,11 +125,8 @@ public class ScheduleService {
 
         List<LessonSlot> weeklyLessons = new ArrayList<>();
         Map<String, SchoolConfigDTO> schoolConfigs = new TreeMap<>();
-        
-        // Tập hợp khóa độc lập để lọc bỏ các bản ghi bị nhân bản (tránh trùng lặp trên giao diện)
         Set<Object> uniqueLessonCheck = new HashSet<>();
 
-        // Duyệt qua tất cả các trường đã lưu trong DB của giảng viên
         if (teacher.getSchools() != null) {
             for (School school : teacher.getSchools()) {
                 schoolConfigs.computeIfAbsent(school.getSchoolCode(), code -> SchoolConfigDTO.builder()
@@ -153,15 +148,20 @@ public class ScheduleService {
                         char flag = weekStr.charAt(charIndex);
                         if (flag != '-' && flag != ' ') {
                             int endPeriod = course.getStartPeriod() + course.getNumPeriods() - 1;
-                            LocalTime startTime = getPeriodStartTime(school, course.getStartPeriod());
-                            LocalTime endTime = getPeriodEndTime(school, endPeriod);
+
+                            // ƯU TIÊN LẤY GIỜ BẮT ĐẦU & KẾT THÚC TỪ FILE EXCEL ĐẦU VÀO (NẾU CÓ)
+                            LocalTime startTime = (course.getCustomStartTime() != null)
+                                    ? course.getCustomStartTime()
+                                    : getPeriodStartTime(school, course.getStartPeriod());
+                            LocalTime endTime = (course.getCustomEndTime() != null)
+                                    ? course.getCustomEndTime()
+                                    : getPeriodEndTime(school, endPeriod);
 
                             int offsetDays = (course.getDayOfWeek() == 8) ? 6 : (course.getDayOfWeek() - 2);
                             LocalDate classDate = targetMonday.plusDays(offsetDays);
 
-                            // Khóa định danh duy nhất cho từng buổi học
                             Object uniqueKey = course.getId() != null ? course.getId() : course;
-                            
+
                             if (!uniqueLessonCheck.contains(uniqueKey)) {
                                 uniqueLessonCheck.add(uniqueKey);
 
@@ -186,9 +186,7 @@ public class ScheduleService {
             }
         }
 
-        // Bắt trùng lịch theo giờ tuyệt đối
         detectConflicts(weeklyLessons);
-
         weeklyLessons.sort(Comparator.comparing(LessonSlot::getDate).thenComparing(LessonSlot::getStartTime));
 
         return WeekScheduleResponse.builder()

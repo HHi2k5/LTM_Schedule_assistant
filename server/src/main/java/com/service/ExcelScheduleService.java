@@ -14,7 +14,6 @@ import java.io.InputStream;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -32,7 +31,7 @@ public class ExcelScheduleService {
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{2,4})");
 
     /**
-     * 1. Giảng viên import lịch cá nhân từ file Excel 9 cột
+     * 1. Giảng viên import lịch cá nhân từ file Excel (Hỗ trợ Cột 9: Giờ bắt đầu, Cột 10: Giờ kết thúc)
      */
     @Transactional(rollbackFor = Exception.class)
     public void importTeacherScheduleFromExcel(
@@ -54,7 +53,12 @@ public class ExcelScheduleService {
 
             Sheet sheet = workbook.getSheet("MonHoc") != null ? workbook.getSheet("MonHoc") : workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
-            importedPeriods = readPeriods(workbook, formatter);
+            
+            // Khởi tạo bảng giờ linh hoạt có sẵn Tiết 6 (12:00 - 13:00)
+            Map<Integer, PeriodTimeDTO> periodMap = new TreeMap<>();
+            for (PeriodTimeDTO p : readPeriodsOptional(workbook, formatter)) {
+                periodMap.put(p.getPeriod(), p);
+            }
 
             if (resolvedSemesterStart == null) {
                 resolvedSemesterStart = detectEarliestMonday(sheet, formatter);
@@ -70,43 +74,67 @@ public class ExcelScheduleService {
                 if (row == null) continue;
                 if (rowIsEmpty(row, formatter)) continue;
                 try {
+                    String courseCodeCell = getCellText(row, 0, formatter);
+                    String courseNameCell = getCellText(row, 1, formatter);
+                    String groupCell = getCellText(row, 2, formatter);
+                    String dayStr = getCellText(row, 4, formatter);
+                    String startPeriodStr = getCellText(row, 5, formatter);
+                    
+                    // Đọc thêm Cột 9 (Giờ bắt đầu) và Cột 10 (Giờ kết thúc)
+                    LocalTime customStart = parseOptionalTimeCell(row.getCell(9), formatter);
+                    LocalTime customEnd = parseOptionalTimeCell(row.getCell(10), formatter);
 
-                String courseCodeCell = getCellText(row, 0, formatter);
-                String courseNameCell = getCellText(row, 1, formatter);
-                String groupCell = getCellText(row, 2, formatter);
-                String dayStr = getCellText(row, 4, formatter);
-                String startPeriodStr = getCellText(row, 5, formatter);
+                    if (!courseCodeCell.isBlank()) lastCourseCode = courseCodeCell;
+                    if (!courseNameCell.isBlank()) lastCourseName = courseNameCell;
+                    if (!groupCell.isBlank()) lastGroup = groupCell;
 
-                if (dayStr.isBlank() || startPeriodStr.isBlank()) throw new IllegalArgumentException("Thiếu thứ hoặc tiết bắt đầu.");
+                    if (lastCourseName.isBlank()) throw new IllegalArgumentException("Thiếu tên môn.");
+                    if (dayStr.isBlank()) throw new IllegalArgumentException("Thiếu thứ.");
 
-                if (!courseCodeCell.isBlank()) lastCourseCode = courseCodeCell;
-                if (!courseNameCell.isBlank()) lastCourseName = courseNameCell;
-                if (!groupCell.isBlank()) lastGroup = groupCell;
+                    int dayOfWeek = parseDayOfWeek(dayStr);
+                    
+                    // LOGIC QUAN TRỌNG: Gán Tiết 6 tự động nếu giờ là 12:00 và tiết để trống
+                    int startPeriod;
+                    if (startPeriodStr.isBlank() && customStart != null && customStart.equals(LocalTime.of(12, 0))) {
+                        startPeriod = 6;
+                    } else if (!startPeriodStr.isBlank()) {
+                        startPeriod = parseIntSafe(startPeriodStr, 1);
+                    } else {
+                        throw new IllegalArgumentException("Thiếu tiết bắt đầu.");
+                    }
 
-                if (lastCourseName.isBlank()) throw new IllegalArgumentException("Thiếu tên môn.");
+                    int numPeriods = parseIntSafe(getCellText(row, 6, formatter), 2);
+                    String room = getCellText(row, 7, formatter);
+                    String studyTimeRange = getCellText(row, 8, formatter);
 
-                int dayOfWeek = parseDayOfWeek(dayStr);
-                int startPeriod = parseIntSafe(startPeriodStr, 1);
-                int numPeriods = parseIntSafe(getCellText(row, 6, formatter), 2);
-                String room = getCellText(row, 7, formatter);
-                String studyTimeRange = getCellText(row, 8, formatter);
+                    // Tự động căn chỉnh bảng tiết học để khớp 100% với giờ thực tế trong file Excel
+                    if (customStart != null && customEnd != null) {
+                        if (!customEnd.isAfter(customStart)) {
+                            throw new IllegalArgumentException("Giờ kết thúc phải sau giờ bắt đầu.");
+                        }
+                        applyCustomTimeToPeriods(periodMap, startPeriod, numPeriods, customStart, customEnd);
+                    }
 
-                String weekSchedule = convertDateRangeToWeekString(studyTimeRange, resolvedSemesterStart, dayOfWeek);
-                String displayCourseName = lastCourseName + " (Nhóm " + lastGroup + ")";
+                    String weekSchedule = convertDateRangeToWeekString(studyTimeRange, resolvedSemesterStart, dayOfWeek);
+                    String displayCourseName = lastCourseName + " (Nhóm " + lastGroup + ")";
 
-                courses.add(TeachingCourseDTO.builder()
-                        .courseCode(!lastCourseCode.isBlank() ? lastCourseCode : "MH_AUTO")
-                        .courseName(displayCourseName)
-                        .room(room)
-                        .dayOfWeek(dayOfWeek)
-                        .startPeriod(startPeriod)
-                        .numPeriods(numPeriods)
-                        .weekSchedule(weekSchedule)
-                        .build());
+                    courses.add(TeachingCourseDTO.builder()
+                            .courseCode(!lastCourseCode.isBlank() ? lastCourseCode : "MH_AUTO")
+                            .courseName(displayCourseName)
+                            .room(room)
+                            .dayOfWeek(dayOfWeek)
+                            .startPeriod(startPeriod)
+                            .numPeriods(numPeriods)
+                            .weekSchedule(weekSchedule)
+                            .customStartTime(customStart) // Ánh xạ giờ thực tế
+                            .customEndTime(customEnd)     // Ánh xạ giờ kết thúc
+                            .build());
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException("MonHoc dòng " + (i + 1) + ": " + e.getMessage());
                 }
             }
+            // Chuẩn hóa lại bảng tiết tránh chồng lấn
+            importedPeriods = reconstructNonOverlappingPeriods(periodMap);
         }
 
         SchoolConfigDTO schoolConfig = SchoolConfigDTO.builder()
@@ -210,7 +238,7 @@ public class ExcelScheduleService {
                 .schoolId(schoolId != null ? schoolId : "PTIT")
                 .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
                 .colorCode("#dc2626")
-                .periods(getDefault12Periods())
+                .periods(getDefault12PeriodsWithNoonSlot6())
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
@@ -225,10 +253,7 @@ public class ExcelScheduleService {
     }
 
     /**
-     * 2. Xử lý trọn bộ 3 file Excel:
-     * - File 1 (planFile): Kế hoạch mở lớp (có STT, Mã môn, Tên học phần, Sĩ số, Khóa, Số lớp mở, Tuần BĐ, Tiết BĐ, Số tiết, Thứ 2..Thứ 7)
-     * - File 2 (teacherFile): Danh sách Giảng viên - Môn học - Khóa
-     * - File 3 (roomFile): Danh sách Phòng học (Lưu vào bảng rooms trong MySQL)
+     * 2. Xử lý trọn bộ 3 file Excel
      */
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFrom3Files(
@@ -246,12 +271,10 @@ public class ExcelScheduleService {
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
-        // BƯỚC 2: Đọc File 2 (Danh sách giảng viên theo Môn học & Khóa)
         Map<String, List<TeacherCandidateDTO>> teacherMap = parseTeacherExcel(teacherFile);
-
-        // BƯỚC 3: Đọc File 1 (Kế hoạch mở lớp)
         List<CourseDemandDTO> courseDemands = parsePlanExcel(planFile, teacherMap);
         if (courseDemands.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
+        
         writeLock.acquire();
         List<Room> availableRooms = parseAndSaveRoomExcel(roomFile, resolvedSchoolId);
 
@@ -259,7 +282,7 @@ public class ExcelScheduleService {
                 .schoolId(resolvedSchoolId)
                 .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
                 .colorCode("#dc2626")
-                .periods(getDefault12Periods())
+                .periods(getDefault12PeriodsWithNoonSlot6())
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
@@ -277,14 +300,106 @@ public class ExcelScheduleService {
         return result;
     }
 
-    /**
-     * Đọc File 1: Kế hoạch mở lớp
-     * Tự động nhận diện vị trí cột từ dòng Header (hỗ trợ cả cột Tiết BĐ + Số tiết + Cột Thứ 2..Thứ 7 đánh dấu 'x')
-     */
-    private List<CourseDemandDTO> parsePlanExcel(
-            MultipartFile planFile,
-            Map<String, List<TeacherCandidateDTO>> teacherMap) throws Exception {
+    // ================= HELPER METHODS CĂN CHỈNH GIỜ =================
 
+    private LocalTime parseOptionalTimeCell(Cell cell, DataFormatter formatter) {
+        if (cell == null) return null;
+        if (cell.getCellType() == CellType.NUMERIC && cell.getNumericCellValue() >= 0 && cell.getNumericCellValue() < 1) {
+            return LocalTime.ofSecondOfDay(Math.round(cell.getNumericCellValue() * 86400) % 86400);
+        }
+        String text = formatter.formatCellValue(cell).trim();
+        if (text.isBlank()) return null;
+        text = text.toLowerCase().replace("h", ":");
+        String[] parts = text.split(":");
+        if (parts.length >= 2) {
+            return LocalTime.of(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
+        }
+        try {
+            return LocalTime.parse(text);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void applyCustomTimeToPeriods(Map<Integer, PeriodTimeDTO> periodMap, int startPeriod, int numPeriods, LocalTime customStart, LocalTime customEnd) {
+        int totalMinutes = (customEnd.toSecondOfDay() - customStart.toSecondOfDay()) / 60;
+        int slotMinutes = Math.max(1, totalMinutes / numPeriods);
+        for (int i = 0; i < numPeriods; i++) {
+            int p = startPeriod + i;
+            LocalTime pStart = customStart.plusMinutes((long) i * slotMinutes);
+            LocalTime pEnd = (i == numPeriods - 1) ? customEnd : customStart.plusMinutes((long) (i + 1) * slotMinutes);
+            periodMap.put(p, new PeriodTimeDTO(p, pStart, pEnd));
+        }
+    }
+
+    private List<PeriodTimeDTO> reconstructNonOverlappingPeriods(Map<Integer, PeriodTimeDTO> periodMap) {
+        int maxP = periodMap.keySet().stream().mapToInt(Integer::intValue).max().orElse(12);
+        List<PeriodTimeDTO> result = new ArrayList<>();
+        LocalTime cursor = LocalTime.of(7, 0);
+
+        for (int p = 1; p <= maxP; p++) {
+            PeriodTimeDTO existing = periodMap.get(p);
+            if (existing != null && !existing.getStart().isBefore(cursor)) {
+                result.add(existing);
+                cursor = existing.getEnd();
+            } else if (existing != null) {
+                int duration = Math.max(15, (existing.getEnd().toSecondOfDay() - existing.getStart().toSecondOfDay()) / 60);
+                LocalTime s = cursor;
+                LocalTime e = s.plusMinutes(duration);
+                result.add(new PeriodTimeDTO(p, s, e));
+                cursor = e;
+            } else {
+                LocalTime s = cursor;
+                LocalTime e = s.plusMinutes(45);
+                result.add(new PeriodTimeDTO(p, s, e));
+                cursor = e;
+            }
+        }
+        return result;
+    }
+
+    private List<PeriodTimeDTO> readPeriodsOptional(Workbook workbook, DataFormatter formatter) {
+        Sheet sheet = workbook.getSheet("TietHoc");
+        if (sheet == null) {
+            return getDefault12PeriodsWithNoonSlot6();
+        }
+        var periods = new ArrayList<PeriodTimeDTO>();
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null || rowIsEmpty(row, formatter)) continue;
+            try {
+                periods.add(new PeriodTimeDTO(parseIntSafe(getCellText(row, 0, formatter), 0),
+                        periodTime(row.getCell(1), formatter), periodTime(row.getCell(2), formatter)));
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException("TietHoc dòng " + (i + 1) + ": tiết/giờ không hợp lệ.");
+            }
+        }
+        return periods.isEmpty() ? getDefault12PeriodsWithNoonSlot6() : periods;
+    }
+
+    /**
+     * Cấu hình chuẩn mặc định (Khung 12h-13h gán là Tiết 6)
+     */
+    private List<PeriodTimeDTO> getDefault12PeriodsWithNoonSlot6() {
+        return List.of(
+                new PeriodTimeDTO(1, LocalTime.of(7, 0), LocalTime.of(7, 50)),
+                new PeriodTimeDTO(2, LocalTime.of(8, 0), LocalTime.of(8, 50)),
+                new PeriodTimeDTO(3, LocalTime.of(9, 0), LocalTime.of(9, 50)),
+                new PeriodTimeDTO(4, LocalTime.of(10, 0), LocalTime.of(10, 50)),
+                new PeriodTimeDTO(5, LocalTime.of(11, 0), LocalTime.of(11, 50)),
+                new PeriodTimeDTO(6, LocalTime.of(12, 0), LocalTime.of(13, 0)), // Tiết 6 đặc biệt
+                new PeriodTimeDTO(7, LocalTime.of(13, 0), LocalTime.of(13, 50)),
+                new PeriodTimeDTO(8, LocalTime.of(14, 0), LocalTime.of(14, 50)),
+                new PeriodTimeDTO(9, LocalTime.of(15, 0), LocalTime.of(15, 50)),
+                new PeriodTimeDTO(10, LocalTime.of(16, 0), LocalTime.of(16, 50)),
+                new PeriodTimeDTO(11, LocalTime.of(17, 0), LocalTime.of(17, 50)),
+                new PeriodTimeDTO(12, LocalTime.of(18, 0), LocalTime.of(18, 50))
+        );
+    }
+
+    // ==============================================================================
+
+    private List<CourseDemandDTO> parsePlanExcel(MultipartFile planFile, Map<String, List<TeacherCandidateDTO>> teacherMap) throws Exception {
         List<CourseDemandDTO> demands = new ArrayList<>();
 
         try (InputStream is = planFile.getInputStream();
@@ -293,22 +408,11 @@ public class ExcelScheduleService {
             Sheet sheet = workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
 
-            // Mặc định vị trí cột theo đúng ảnh chụp màn hình:
-            // [0] STT | [1] Mã môn | [2] Tên học phần | [3] Sĩ số | [4] Khóa | [5] Số lớp mở | [6] Tuần BĐ | [7] Số tiết
-            int colCredits = -1;
-            int colStt = 0;
-            int colCode = 1;
-            int colName = 2;
-            int colSize = 3;
-            int colCohort = 4;
-            int colNumClasses = 5;
-            int colStartWeek = 6;
-            int colStartPeriod = -1; // Nếu có cột "Tiết BĐ" riêng
-            int colNumPeriods = 7;   // Cột "Số tiết"
-            int colDirectDay = -1;   // Nếu có cột "Thứ" ghi trực tiếp số 2..7
-            Map<Integer, Integer> dayColumnsMap = new HashMap<>(); // Map<ColumnIndex, DayOfWeek (2..8)> cho các cột "Thứ 2", "Thứ 3"...
+            int colCredits = -1, colStt = 0, colCode = 1, colName = 2, colSize = 3;
+            int colCohort = 4, colNumClasses = 5, colStartWeek = 6, colStartPeriod = -1;
+            int colNumPeriods = 7, colDirectDay = -1;
+            Map<Integer, Integer> dayColumnsMap = new HashMap<>();
 
-            // Quét 5 dòng đầu để tự động map chính xác tên cột
             int headerRowIdx = -1;
             for (int r = 0; r <= Math.min(5, sheet.getLastRowNum()); r++) {
                 Row row = sheet.getRow(r);
@@ -338,7 +442,6 @@ public class ExcelScheduleService {
                 }
             }
 
-            // Nếu không tìm thấy cột Thứ 2..Thứ 7 bằng tiêu đề, mặc định các cột từ H/I trở đi (như trên ảnh: cột 8->13 là Thứ 2->Thứ 7)
             if (dayColumnsMap.isEmpty() && colDirectDay == -1) {
                 int baseDayCol = (colStartPeriod != -1) ? Math.max(colStartPeriod, colNumPeriods) + 1 : 8;
                 for (int d = 2; d <= 7; d++) {
@@ -346,11 +449,10 @@ public class ExcelScheduleService {
                 }
             }
 
-            // Bộ đếm để xoay vòng (round-robin) chia đều các dòng của cùng 1 (Mã môn + Khóa) cho danh sách giảng viên
             Map<String, Integer> teacherRoundRobinCounter = new HashMap<>();
-
             if (headerRowIdx < 0) throw new IllegalArgumentException("Missing plan column headers.");
             int startScanRow = headerRowIdx + 1;
+            
             for (int i = startScanRow; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
@@ -374,18 +476,13 @@ public class ExcelScheduleService {
                 int numClasses = parseIntSafe(getCellText(row, colNumClasses, formatter), 1);
                 int startWeek = parseIntSafe(getCellText(row, colStartWeek, formatter), 1);
                 int numPeriods = parseIntSafe(getCellText(row, colNumPeriods, formatter), 3);
-                if (classSize < 1 || classSize > 1000 || numClasses < 1 || numClasses > 500 || startWeek < 1 || startWeek > 16
-                        || numPeriods < 1 || numPeriods > 30) throw new IllegalArgumentException("Dòng " + (i + 1) + ": sĩ số/lớp/tuần/tiết không hợp lệ.");
 
                 Integer fixedStartPeriod = null;
                 if (colStartPeriod != -1) {
                     String spText = getCellText(row, colStartPeriod, formatter);
-                    if (!spText.isBlank()) {
-                        fixedStartPeriod = parseIntSafe(spText, 1);
-                    }
+                    if (!spText.isBlank()) fixedStartPeriod = parseIntSafe(spText, 1);
                 }
 
-                // Dò xem dòng này học vào Thứ mấy (kiểm tra cột Thứ trực tiếp hoặc các cột Thứ 2..Thứ 7 có đánh dấu 'x' / ghi tiết)
                 Integer fixedDay = null;
                 if (colDirectDay != -1) {
                     String dText = getCellText(row, colDirectDay, formatter);
@@ -396,7 +493,6 @@ public class ExcelScheduleService {
                         String cellMark = getCellText(row, entry.getKey(), formatter);
                         if (!cellMark.isBlank()) {
                             fixedDay = entry.getValue();
-                            // Nếu trong ô Thứ 2..Thứ 7 ghi số tiết bắt đầu (VD: "1-3" hoặc "4") thay vì chữ "x"
                             if (fixedStartPeriod == null && cellMark.matches(".*\\d+.*")) {
                                 String firstNum = cellMark.split("[-,]")[0].trim();
                                 fixedStartPeriod = parseIntSafe(firstNum, 1);
@@ -406,7 +502,6 @@ public class ExcelScheduleService {
                     }
                 }
 
-                // Tìm danh sách giảng viên phụ trách (Mã môn + Khóa) từ File 2
                 String keyWithCohort = courseCode + "_" + cohort;
                 List<TeacherCandidateDTO> candidates = teacherMap.get(keyWithCohort);
                 if (candidates == null || candidates.isEmpty()) {
@@ -415,7 +510,6 @@ public class ExcelScheduleService {
 
                 List<TeacherCandidateDTO> assignedForThisRow;
                 if (candidates != null && !candidates.isEmpty()) {
-                    // Chia đều từng dòng (lớp) cho các giảng viên trong danh sách theo vòng tròn (Round-Robin)
                     int rrIdx = teacherRoundRobinCounter.getOrDefault(keyWithCohort, 0);
                     TeacherCandidateDTO picked = candidates.get(rrIdx % candidates.size());
                     teacherRoundRobinCounter.put(keyWithCohort, rrIdx + 1);
@@ -426,10 +520,9 @@ public class ExcelScheduleService {
                             .assignedClasses(numClasses)
                             .build());
                 } else {
-                    // Nếu không truyền file GV hoặc môn đó chưa có trong file GV -> Tự tạo GV theo môn & khóa
                     int rrIdx = teacherRoundRobinCounter.getOrDefault(keyWithCohort, 0);
                     teacherRoundRobinCounter.put(keyWithCohort, rrIdx + 1);
-                    int gvGroup = (rrIdx / 3) + 1; // Mỗi GV dạy tối đa 3 lớp để chia đều
+                    int gvGroup = (rrIdx / 3) + 1;
                     assignedForThisRow = List.of(TeacherCandidateDTO.builder()
                             .teacherId(String.format("GV_%s_%02d", courseCode, gvGroup))
                             .teacherName(String.format("GV %s (Nhóm %d)", courseName, gvGroup))
@@ -457,10 +550,6 @@ public class ExcelScheduleService {
         return demands;
     }
 
-    /**
-     * Đọc File 2: Danh sách Giảng viên - Môn học - Khóa
-     * Hỗ trợ linh hoạt các cột: Mã môn | Tên môn | Khóa | Mã GV | Tên GV
-     */
     private Map<String, List<TeacherCandidateDTO>> parseTeacherExcel(MultipartFile teacherFile) throws Exception {
         Map<String, List<TeacherCandidateDTO>> map = new HashMap<>();
         if (teacherFile == null || teacherFile.isEmpty()) return map;
@@ -472,12 +561,7 @@ public class ExcelScheduleService {
             Sheet sheet = workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
 
-            int colCourseCode = 0;
-            int colCohort = 2;
-            int colTeacherId = 3;
-            int colTeacherName = 4;
-
-            // Tự động nhận diện cột ở dòng tiêu đề
+            int colCourseCode = 0, colCohort = 2, colTeacherId = 3, colTeacherName = 4;
             Row headerRow = sheet.getRow(0);
             if (headerRow != null) {
                 for (int c = 0; c < headerRow.getLastCellNum(); c++) {
@@ -498,7 +582,6 @@ public class ExcelScheduleService {
                 String teacherId = getCellText(row, colTeacherId, formatter).toUpperCase(Locale.ROOT);
                 String teacherName = getCellText(row, colTeacherName, formatter);
 
-                // Hỗ trợ trường hợp file chỉ có 3 cột: [0] Mã môn | [1] Giảng viên | [2] Khóa
                 if (teacherId.isBlank() && teacherName.isBlank()) {
                     String col1 = getCellText(row, 1, formatter);
                     String col2 = getCellText(row, 2, formatter);
@@ -523,7 +606,6 @@ public class ExcelScheduleService {
                         .teacherName(teacherName)
                         .build();
 
-                // Lưu theo cả key "MãMôn_Khóa" và key "MãMôn" để tra cứu chính xác
                 if (!cohort.isBlank()) {
                     String keyCohort = courseCode + "_" + cohort;
                     map.putIfAbsent(keyCohort, new ArrayList<>());
@@ -542,10 +624,6 @@ public class ExcelScheduleService {
         }
     }
 
-    /**
-     * Đọc File 3: Danh sách Phòng học và lưu vào bảng `rooms` trong MySQL
-     * Cột hỗ trợ: [0] Mã phòng | [1] Loại phòng (Lý thuyết / Thực hành / LAB) | [2] Sức chứa (Capacity) | [3] Tòa nhà
-     */
     private List<Room> parseAndSaveRoomExcel(MultipartFile roomFile, String schoolCode) throws Exception {
         if (roomFile != null && !roomFile.isEmpty()) {
             validateFile(roomFile);
@@ -609,13 +687,11 @@ public class ExcelScheduleService {
             }
         }
 
-        // Nếu không truyền file phòng học, lấy từ Database MySQL
         List<Room> dbRooms = roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolCode);
         if (!dbRooms.isEmpty()) {
             return dbRooms;
         }
 
-        // An empty catalogue requires explicit room input instead of invented inventory.
         throw new IllegalArgumentException("Trường chưa có danh mục phòng; cần tải file phòng học.");
     }
 
@@ -696,22 +772,6 @@ public class ExcelScheduleService {
         return true;
     }
 
-    private List<PeriodTimeDTO> readPeriods(Workbook workbook, DataFormatter formatter) {
-        Sheet sheet = workbook.getSheet("TietHoc");
-        if (sheet == null) throw new IllegalArgumentException("Thiếu sheet TietHoc (period, start, end); cần cung cấp bảng giờ thực của trường.");
-        var periods = new ArrayList<PeriodTimeDTO>();
-        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-            Row row = sheet.getRow(i);
-            if (row == null || rowIsEmpty(row, formatter)) continue;
-            try {
-                periods.add(new PeriodTimeDTO(parseIntSafe(getCellText(row, 0, formatter), 0),
-                        periodTime(row.getCell(1), formatter), periodTime(row.getCell(2), formatter)));
-            } catch (RuntimeException e) { throw new IllegalArgumentException("TietHoc dòng " + (i + 1) + ": tiết/giờ không hợp lệ."); }
-        }
-        ScheduleValidation.periods(periods);
-        return periods;
-    }
-
     private LocalTime periodTime(Cell cell, DataFormatter formatter) {
         if (cell != null && cell.getCellType() == CellType.NUMERIC && cell.getNumericCellValue() >= 0 && cell.getNumericCellValue() < 1) {
             return LocalTime.ofSecondOfDay(Math.round(cell.getNumericCellValue() * 86400) % 86400);
@@ -740,22 +800,5 @@ public class ExcelScheduleService {
     private String extractTeacherName(String raw) {
         if (raw.contains("-")) return raw.split("-", 2)[1].trim();
         return raw.trim();
-    }
-
-    private List<PeriodTimeDTO> getDefault12Periods() {
-        return List.of(
-                new PeriodTimeDTO(1, LocalTime.of(7, 0), LocalTime.of(7, 50)),
-                new PeriodTimeDTO(2, LocalTime.of(8, 0), LocalTime.of(8, 50)),
-                new PeriodTimeDTO(3, LocalTime.of(9, 0), LocalTime.of(9, 50)),
-                new PeriodTimeDTO(4, LocalTime.of(10, 0), LocalTime.of(10, 50)),
-                new PeriodTimeDTO(5, LocalTime.of(11, 0), LocalTime.of(11, 50)),
-                new PeriodTimeDTO(6, LocalTime.of(13, 0), LocalTime.of(13, 50)),
-                new PeriodTimeDTO(7, LocalTime.of(14, 0), LocalTime.of(14, 50)),
-                new PeriodTimeDTO(8, LocalTime.of(15, 0), LocalTime.of(15, 50)),
-                new PeriodTimeDTO(9, LocalTime.of(16, 0), LocalTime.of(16, 50)),
-                new PeriodTimeDTO(10, LocalTime.of(17, 0), LocalTime.of(17, 50)),
-                new PeriodTimeDTO(11, LocalTime.of(18, 0), LocalTime.of(18, 50)),
-                new PeriodTimeDTO(12, LocalTime.of(19, 0), LocalTime.of(19, 50))
-        );
     }
 }
