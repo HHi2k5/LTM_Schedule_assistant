@@ -4,6 +4,7 @@ import com.dto.*;
 import com.model.*;
 import com.repository.SchoolRepository;
 import com.repository.TeacherRepository;
+import com.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,10 +20,13 @@ public class ScheduleService {
     private final TeacherRepository teacherRepository;
     private final SchoolRepository schoolRepository;
     private final com.security.ScheduleAccess scheduleAccess;
+    private final ScheduleWriteLock writeLock;
 
     @Transactional
     public void saveOrUpdateSchoolSchedule(SchoolUploadRequest request) {
+        ScheduleValidation.upload(request);
         scheduleAccess.requireTeacherAccess(request.getTeacherId());
+        writeLock.acquire();
         // 1. Tìm hoặc tạo mới Giảng viên
         Teacher teacher = teacherRepository.findById(request.getTeacherId())
                 .orElseGet(() -> Teacher.builder()
@@ -32,6 +36,10 @@ public class ScheduleService {
                         .build());
 
         if (request.getSemesterStartDate() != null) {
+            if (teacher.getSchools() != null && !teacher.getSchools().isEmpty()
+                    && !request.getSemesterStartDate().equals(teacher.getSemesterStartDate())) {
+                throw new IllegalArgumentException("Mốc tuần khác lịch đã lưu; cần đối chiếu trước khi thay đổi.");
+            }
             teacher.setSemesterStartDate(request.getSemesterStartDate());
         }
         teacherRepository.save(teacher);
@@ -93,8 +101,9 @@ public class ScheduleService {
     @Transactional
     public void deleteSchoolSchedule(String teacherId, String schoolCode) {
         scheduleAccess.requireTeacherAccess(teacherId);
+        writeLock.acquire();
         School school = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacherId, schoolCode)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new ResourceNotFoundException(
                         "Không tìm thấy lịch của trường " + schoolCode + " cho giảng viên " + teacherId));
         
         Teacher teacher = school.getTeacher();
@@ -105,13 +114,13 @@ public class ScheduleService {
     @Transactional(readOnly = true)
     public WeekScheduleResponse getWeeklySchedule(String teacherId, int weekIndex) {
         scheduleAccess.requireTeacherAccess(teacherId);
+        if (weekIndex < 1 || weekIndex > 100) throw new IllegalArgumentException("Tuần phải từ 1 đến 100.");
         Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
 
         // Dự phòng an toàn chống NullPointerException nếu ngày khai giảng bị null
-        LocalDate mondayOfWeek1 = teacher.getSemesterStartDate() != null 
-                ? teacher.getSemesterStartDate() 
-                : LocalDate.of(2026, 8, 10);
+        LocalDate mondayOfWeek1 = teacher.getSemesterStartDate();
+        ScheduleValidation.monday(mondayOfWeek1);
 
         LocalDate targetMonday = mondayOfWeek1.plusWeeks(weekIndex - 1);
         LocalDate targetSunday = targetMonday.plusDays(6);
@@ -119,7 +128,7 @@ public class ScheduleService {
         List<LessonSlot> weeklyLessons = new ArrayList<>();
         
         // Tập hợp khóa độc lập để lọc bỏ các bản ghi bị nhân bản (tránh trùng lặp trên giao diện)
-        Set<String> uniqueLessonCheck = new HashSet<>();
+        Set<Object> uniqueLessonCheck = new HashSet<>();
 
         // Duyệt qua tất cả các trường đã lưu trong DB của giảng viên
         if (teacher.getSchools() != null) {
@@ -141,7 +150,7 @@ public class ScheduleService {
                             LocalDate classDate = targetMonday.plusDays(offsetDays);
 
                             // Khóa định danh duy nhất cho từng buổi học
-                            String uniqueKey = course.getCourseName() + "_" + classDate.toString() + "_" + startTime.toString();
+                            Object uniqueKey = course.getId() != null ? course.getId() : course;
                             
                             if (!uniqueLessonCheck.contains(uniqueKey)) {
                                 uniqueLessonCheck.add(uniqueKey);
@@ -191,8 +200,7 @@ public class ScheduleService {
                 return time.get();
             }
         }
-        // Fallback tự động tính giờ nếu thiếu tiết trong CSDL (mỗi tiết cách nhau 50 phút từ 7:00)
-        return LocalTime.of(7, 0).plusMinutes((Math.max(1, period) - 1) * 50);
+        throw new IllegalArgumentException("Thiếu giờ bắt đầu tiết " + period + ". Cần sửa bảng giờ của trường.");
     }
 
     private LocalTime getPeriodEndTime(School school, int period) {
@@ -205,8 +213,7 @@ public class ScheduleService {
                 return time.get();
             }
         }
-        // Fallback tự động tính giờ kết thúc (mỗi tiết học 50 phút)
-        return LocalTime.of(7, 50).plusMinutes((Math.max(1, period) - 1) * 50);
+        throw new IllegalArgumentException("Thiếu giờ kết thúc tiết " + period + ". Cần sửa bảng giờ của trường.");
     }
 
     private void detectConflicts(List<LessonSlot> slots) {

@@ -4,7 +4,6 @@ import com.dto.AutoScheduleResponse;
 import com.dto.WeekScheduleResponse;
 import com.model.Room;
 import com.repository.RoomRepository;
-import com.service.AutoScheduleService;
 import com.service.ExcelScheduleService;
 import com.service.ScheduleService;
 import lombok.RequiredArgsConstructor;
@@ -20,16 +19,13 @@ import java.util.Map;
 import com.security.AccountPrincipal;
 import com.security.ScheduleAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.authentication.BadCredentialsException;
 
 @RestController
 @RequestMapping("/api/schedule")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
-    private final AutoScheduleService autoScheduleService;
     private final ExcelScheduleService excelScheduleService;
     private final com.service.AuthService authService;
     private final RoomRepository roomRepository;
@@ -45,18 +41,14 @@ public class ScheduleController {
             @RequestParam("schoolName") String schoolName,
             @RequestParam(value = "colorCode", defaultValue = "#2563eb") String colorCode,
             @RequestParam(value = "semesterStartDate", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate semesterStartDate) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate semesterStartDate) throws Exception {
         scheduleAccess.requireTeacherAccess(teacherId);
-        try {
-            excelScheduleService.importTeacherScheduleFromExcel(
-                    file, teacherId, teacherName, schoolId, schoolName, colorCode, semesterStartDate);
-            return ResponseEntity.ok(Map.of(
-                    "status", "SUCCESS",
-                    "message", "Đã đọc file Excel và cập nhật lịch trường " + schoolName + " thành công!"
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
-        }
+        excelScheduleService.importTeacherScheduleFromExcel(
+                file, teacherId, teacherName, schoolId, schoolName, colorCode, semesterStartDate);
+        return ResponseEntity.ok(Map.of(
+                "status", "SUCCESS",
+                "message", "Đã đọc file Excel và cập nhật lịch trường " + schoolName + " thành công!"
+        ));
     }
 
     // 2. Xóa lịch cũ của 1 trường cụ thể để giảng viên đổi lịch
@@ -83,31 +75,27 @@ public class ScheduleController {
             @RequestParam(value = "schoolId", defaultValue = "PTIT") String schoolId,
             @RequestParam(value = "schoolName", defaultValue = "Học viện Công nghệ Bưu chính Viễn thông") String schoolName,
             @RequestParam(value = "semesterStartDate", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate semesterStartDate) {
-        try {
-            MultipartFile mainPlanFile = (planFile != null && !planFile.isEmpty()) ? planFile : legacyFile;
-            if (mainPlanFile == null || mainPlanFile.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "status", "ERROR",
-                        "message", "Vui lòng chọn file Excel Kế hoạch mở lớp!"
-                ));
-            }
-
-            AutoScheduleResponse response = planFile != null && !planFile.isEmpty()
-                    ? excelScheduleService.autoScheduleFrom3Files(
-                            mainPlanFile, teacherFile, roomFile, schoolId, schoolName, semesterStartDate)
-                    : excelScheduleService.autoScheduleFromExcel(
-                            legacyFile, schoolId, schoolName, semesterStartDate);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate semesterStartDate) throws Exception {
+        MultipartFile mainPlanFile = (planFile != null && !planFile.isEmpty()) ? planFile : legacyFile;
+        if (mainPlanFile == null || mainPlanFile.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "ERROR",
+                    "message", "Vui lòng chọn file Excel Kế hoạch mở lớp!"
+            ));
         }
+
+        AutoScheduleResponse response = planFile != null && !planFile.isEmpty()
+                ? excelScheduleService.autoScheduleFrom3Files(
+                        mainPlanFile, teacherFile, roomFile, schoolId, schoolName, semesterStartDate)
+                : excelScheduleService.autoScheduleFromExcel(
+                        legacyFile, schoolId, schoolName, semesterStartDate);
+        return ResponseEntity.ok(response);
     }
 
     // 4. Lấy danh sách toàn bộ phòng học đang lưu trong MySQL (sắp xếp theo sức chứa tăng dần)
     @GetMapping("/rooms")
-    public ResponseEntity<List<Room>> getAllRooms() {
-        return ResponseEntity.ok(roomRepository.findAllByOrderByCapacityAsc());
+    public ResponseEntity<List<Room>> getAllRooms(@RequestParam(defaultValue = "PTIT") String schoolId) {
+        return ResponseEntity.ok(roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolId));
     }
 
     // 5. Client lấy kết quả thời khóa biểu theo tuần
@@ -122,27 +110,24 @@ public class ScheduleController {
     // 6. Đăng ký tài khoản
     @PostMapping("/auth/register")
     public ResponseEntity<?> register(@RequestBody com.dto.AuthRequest request) {
-        try {
-            return ResponseEntity.ok(authService.register(request));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
-        }
+        return ResponseEntity.ok(authService.register(request));
     }
 
     // 7. Đăng nhập hệ thống
     @PostMapping("/auth/login")
     public ResponseEntity<?> login(@RequestBody com.dto.AuthRequest request) {
-        try {
-            return ResponseEntity.ok(authService.login(request));
-        } catch (BadCredentialsException e) {
-            return ResponseEntity.status(401).body(Map.of("status", "ERROR", "message", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("status", "ERROR", "message", e.getMessage()));
-        }
+        return ResponseEntity.ok(authService.login(request));
     }
 
     @GetMapping("/auth/me")
     public ResponseEntity<?> current(@AuthenticationPrincipal AccountPrincipal account) {
         return ResponseEntity.ok(authService.current(account));
+    }
+
+    @PostMapping("/auth/change-password")
+    public ResponseEntity<?> changePassword(@AuthenticationPrincipal AccountPrincipal account,
+            @RequestBody com.dto.ChangePasswordRequest request) {
+        authService.changePassword(account, request);
+        return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "Đổi mật khẩu thành công."));
     }
 }

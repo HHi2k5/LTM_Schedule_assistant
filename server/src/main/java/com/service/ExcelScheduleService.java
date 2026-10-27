@@ -27,13 +27,14 @@ public class ExcelScheduleService {
     private final ScheduleService scheduleService;
     private final AutoScheduleService autoScheduleService;
     private final RoomRepository roomRepository;
+    private final ScheduleWriteLock writeLock;
 
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{2,4})");
 
     /**
      * 1. Giảng viên import lịch cá nhân từ file Excel 9 cột
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void importTeacherScheduleFromExcel(
             MultipartFile file,
             String teacherId,
@@ -43,18 +44,22 @@ public class ExcelScheduleService {
             String colorCode,
             LocalDate semesterStartDate) throws Exception {
 
+        validateFile(file);
         List<TeachingCourseDTO> courses = new ArrayList<>();
+        List<PeriodTimeDTO> importedPeriods;
         LocalDate resolvedSemesterStart = semesterStartDate;
 
         try (InputStream is = file.getInputStream();
              Workbook workbook = new XSSFWorkbook(is)) {
 
-            Sheet sheet = workbook.getSheetAt(0);
+            Sheet sheet = workbook.getSheet("MonHoc") != null ? workbook.getSheet("MonHoc") : workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
+            importedPeriods = readPeriods(workbook, formatter);
 
             if (resolvedSemesterStart == null) {
                 resolvedSemesterStart = detectEarliestMonday(sheet, formatter);
             }
+            ScheduleValidation.monday(resolvedSemesterStart);
 
             String lastCourseCode = "";
             String lastCourseName = "";
@@ -63,6 +68,8 @@ public class ExcelScheduleService {
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
+                if (rowIsEmpty(row, formatter)) continue;
+                try {
 
                 String courseCodeCell = getCellText(row, 0, formatter);
                 String courseNameCell = getCellText(row, 1, formatter);
@@ -70,13 +77,13 @@ public class ExcelScheduleService {
                 String dayStr = getCellText(row, 4, formatter);
                 String startPeriodStr = getCellText(row, 5, formatter);
 
-                if (dayStr.isBlank() || startPeriodStr.isBlank()) continue;
+                if (dayStr.isBlank() || startPeriodStr.isBlank()) throw new IllegalArgumentException("Thiếu thứ hoặc tiết bắt đầu.");
 
                 if (!courseCodeCell.isBlank()) lastCourseCode = courseCodeCell;
                 if (!courseNameCell.isBlank()) lastCourseName = courseNameCell;
                 if (!groupCell.isBlank()) lastGroup = groupCell;
 
-                if (lastCourseName.isBlank()) continue;
+                if (lastCourseName.isBlank()) throw new IllegalArgumentException("Thiếu tên môn.");
 
                 int dayOfWeek = parseDayOfWeek(dayStr);
                 int startPeriod = parseIntSafe(startPeriodStr, 1);
@@ -84,7 +91,7 @@ public class ExcelScheduleService {
                 String room = getCellText(row, 7, formatter);
                 String studyTimeRange = getCellText(row, 8, formatter);
 
-                String weekSchedule = convertDateRangeToWeekString(studyTimeRange, resolvedSemesterStart, 16);
+                String weekSchedule = convertDateRangeToWeekString(studyTimeRange, resolvedSemesterStart, dayOfWeek);
                 String displayCourseName = lastCourseName + " (Nhóm " + lastGroup + ")";
 
                 courses.add(TeachingCourseDTO.builder()
@@ -96,6 +103,9 @@ public class ExcelScheduleService {
                         .numPeriods(numPeriods)
                         .weekSchedule(weekSchedule)
                         .build());
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("MonHoc dòng " + (i + 1) + ": " + e.getMessage());
+                }
             }
         }
 
@@ -103,7 +113,7 @@ public class ExcelScheduleService {
                 .schoolId(schoolId)
                 .schoolName(schoolName)
                 .colorCode(colorCode != null ? colorCode : "#2563eb")
-                .periods(getDefault12Periods())
+                .periods(importedPeriods)
                 .build();
 
         SchoolUploadRequest uploadRequest = SchoolUploadRequest.builder()
@@ -114,19 +124,21 @@ public class ExcelScheduleService {
                 .courses(courses)
                 .build();
 
+        ScheduleValidation.upload(uploadRequest);
         scheduleService.saveOrUpdateSchoolSchedule(uploadRequest);
     }
 
     /**
      * Wrapper giữ tương thích nếu nơi khác gọi hàm 1 file
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFromExcel(
             MultipartFile file,
             String schoolId,
             String schoolName,
             LocalDate semesterStartDate) throws Exception {
 
+        validateFile(file);
         LocalDate resolvedStart = semesterStartDate != null ? semesterStartDate : LocalDate.of(2026, 8, 10);
         if (resolvedStart.getDayOfWeek() != DayOfWeek.MONDAY) {
             throw new IllegalArgumentException("Ngày bắt đầu tuần 1 phải là Thứ Hai.");
@@ -148,7 +160,8 @@ public class ExcelScheduleService {
                 String classesText = getCellText(row, 2, formatter);
                 int numClasses = classesText.isBlank() ? 4 : parseIntSafe(classesText, -1);
 
-                if (courseRaw.isBlank() || teacherRaw.isBlank()) continue;
+                if (rowIsEmpty(row, formatter)) continue;
+                if (courseRaw.isBlank() || teacherRaw.isBlank()) throw new IllegalArgumentException("Dòng " + (i + 1) + ": thiếu môn học hoặc giảng viên.");
                 if (numClasses < 1 || numClasses > 8) throw new IllegalArgumentException("Dòng " + (i + 1) + ": số lớp phải từ 1 đến 8.");
                 String courseCode = getCellText(row, 3, formatter);
                 String creditsText = getCellText(row, 4, formatter);
@@ -217,7 +230,7 @@ public class ExcelScheduleService {
      * - File 2 (teacherFile): Danh sách Giảng viên - Môn học - Khóa
      * - File 3 (roomFile): Danh sách Phòng học (Lưu vào bảng rooms trong MySQL)
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFrom3Files(
             MultipartFile planFile,
             MultipartFile teacherFile,
@@ -225,6 +238,7 @@ public class ExcelScheduleService {
             String schoolId,
             String schoolName,
             LocalDate semesterStartDate) throws Exception {
+        validateFile(planFile);
         LocalDate resolvedStart = semesterStartDate != null ? semesterStartDate : LocalDate.of(2026, 8, 10);
         if (resolvedStart.getDayOfWeek() != DayOfWeek.MONDAY) {
             throw new IllegalArgumentException("Ngày bắt đầu tuần 1 phải là Thứ Hai.");
@@ -232,14 +246,14 @@ public class ExcelScheduleService {
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
-        // BƯỚC 1: Đọc File 3 (Danh sách phòng học) và lưu vào MySQL
-        List<Room> availableRooms = parseAndSaveRoomExcel(roomFile, resolvedSchoolId);
-
         // BƯỚC 2: Đọc File 2 (Danh sách giảng viên theo Môn học & Khóa)
         Map<String, List<TeacherCandidateDTO>> teacherMap = parseTeacherExcel(teacherFile);
 
         // BƯỚC 3: Đọc File 1 (Kế hoạch mở lớp)
         List<CourseDemandDTO> courseDemands = parsePlanExcel(planFile, teacherMap);
+        if (courseDemands.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
+        writeLock.acquire();
+        List<Room> availableRooms = parseAndSaveRoomExcel(roomFile, resolvedSchoolId);
 
         SchoolConfigDTO targetSchool = SchoolConfigDTO.builder()
                 .schoolId(resolvedSchoolId)
@@ -256,7 +270,11 @@ public class ExcelScheduleService {
                 .courses(courseDemands)
                 .build();
 
-        return autoScheduleService.generateScheduleWithRooms(request, availableRooms);
+        var result = autoScheduleService.generateScheduleWithRooms(request, availableRooms);
+        if (!result.isSaved()) {
+            org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        }
+        return result;
     }
 
     /**
@@ -331,7 +349,8 @@ public class ExcelScheduleService {
             // Bộ đếm để xoay vòng (round-robin) chia đều các dòng của cùng 1 (Mã môn + Khóa) cho danh sách giảng viên
             Map<String, Integer> teacherRoundRobinCounter = new HashMap<>();
 
-            int startScanRow = (headerRowIdx != -1) ? headerRowIdx + 1 : 1;
+            if (headerRowIdx < 0) throw new IllegalArgumentException("Missing plan column headers.");
+            int startScanRow = headerRowIdx + 1;
             for (int i = startScanRow; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
@@ -341,11 +360,9 @@ public class ExcelScheduleService {
                 String courseName = getCellText(row, colName, formatter);
                 String classSizeStr = getCellText(row, colSize, formatter);
 
-                if (courseCode.isBlank() || courseName.isBlank()
-                        || courseCode.contains("MÃ MÔN")
-                        || (!sttStr.matches("\\d+") && !classSizeStr.matches("\\d+"))) {
-                    continue;
-                }
+                if (rowIsEmpty(row, formatter)) continue;
+                if (courseCode.isBlank() || courseName.isBlank())
+                    throw new IllegalArgumentException("Plan row " + (i + 1) + ": missing course code/name.");
 
                 String creditsText = colCredits < 0 ? "" : getCellText(row, colCredits, formatter);
                 Integer credits = creditsText.isBlank() ? null : parseIntSafe(creditsText, -1);
@@ -354,9 +371,11 @@ public class ExcelScheduleService {
                 }
                 int classSize = parseIntSafe(classSizeStr, 50);
                 String cohort = getCellText(row, colCohort, formatter);
-                int numClasses = Math.max(1, parseIntSafe(getCellText(row, colNumClasses, formatter), 1));
-                int startWeek = Math.max(1, parseIntSafe(getCellText(row, colStartWeek, formatter), 1));
-                int numPeriods = Math.max(2, parseIntSafe(getCellText(row, colNumPeriods, formatter), 3));
+                int numClasses = parseIntSafe(getCellText(row, colNumClasses, formatter), 1);
+                int startWeek = parseIntSafe(getCellText(row, colStartWeek, formatter), 1);
+                int numPeriods = parseIntSafe(getCellText(row, colNumPeriods, formatter), 3);
+                if (classSize < 1 || classSize > 1000 || numClasses < 1 || numClasses > 500 || startWeek < 1 || startWeek > 16
+                        || numPeriods < 1 || numPeriods > 30) throw new IllegalArgumentException("Dòng " + (i + 1) + ": sĩ số/lớp/tuần/tiết không hợp lệ.");
 
                 Integer fixedStartPeriod = null;
                 if (colStartPeriod != -1) {
@@ -445,6 +464,7 @@ public class ExcelScheduleService {
     private Map<String, List<TeacherCandidateDTO>> parseTeacherExcel(MultipartFile teacherFile) throws Exception {
         Map<String, List<TeacherCandidateDTO>> map = new HashMap<>();
         if (teacherFile == null || teacherFile.isEmpty()) return map;
+        validateFile(teacherFile);
 
         try (InputStream is = teacherFile.getInputStream();
              Workbook workbook = new XSSFWorkbook(is)) {
@@ -475,7 +495,7 @@ public class ExcelScheduleService {
 
                 String courseCode = getCellText(row, colCourseCode, formatter).toUpperCase();
                 String cohort = getCellText(row, colCohort, formatter);
-                String teacherId = getCellText(row, colTeacherId, formatter);
+                String teacherId = getCellText(row, colTeacherId, formatter).toUpperCase(Locale.ROOT);
                 String teacherName = getCellText(row, colTeacherName, formatter);
 
                 // Hỗ trợ trường hợp file chỉ có 3 cột: [0] Mã môn | [1] Giảng viên | [2] Khóa
@@ -493,7 +513,10 @@ public class ExcelScheduleService {
                     teacherName = extractTeacherName(teacherId);
                 }
 
-                if (courseCode.isBlank() || courseCode.contains("MÃ MÔN") || teacherId.isBlank()) continue;
+                if (rowIsEmpty(row, formatter)) continue;
+                if (courseCode.isBlank() || teacherId.isBlank()) throw new IllegalArgumentException("Danh sách GV dòng " + (i + 1) + ": thiếu mã môn/GV.");
+                ScheduleValidation.text(teacherId, 50, "Dòng " + (i + 1) + ": mã GV");
+                ScheduleValidation.text(teacherName, 100, "Dòng " + (i + 1) + ": tên GV");
 
                 TeacherCandidateDTO candidate = TeacherCandidateDTO.builder()
                         .teacherId(teacherId)
@@ -525,7 +548,9 @@ public class ExcelScheduleService {
      */
     private List<Room> parseAndSaveRoomExcel(MultipartFile roomFile, String schoolCode) throws Exception {
         if (roomFile != null && !roomFile.isEmpty()) {
+            validateFile(roomFile);
             List<Room> importedRooms = new ArrayList<>();
+            Set<String> roomCodes = new HashSet<>();
             try (InputStream is = roomFile.getInputStream();
                  Workbook workbook = new XSSFWorkbook(is)) {
 
@@ -541,9 +566,9 @@ public class ExcelScheduleService {
                     String capacityStr = getCellText(row, 2, formatter);
                     String building = getCellText(row, 3, formatter);
 
-                    if (roomCode.isBlank() || roomCode.equalsIgnoreCase("Mã phòng") || roomCode.equalsIgnoreCase("STT")) {
-                        continue;
-                    }
+                    if (rowIsEmpty(row, formatter)) continue;
+                    if (roomCode.isBlank() || !roomCodes.add(roomCode.toUpperCase(Locale.ROOT)))
+                        throw new IllegalArgumentException("Danh sách phòng dòng " + (i + 1) + ": mã phòng thiếu hoặc lặp.");
 
                     boolean isLab = roomTypeRaw.contains("THỰC HÀNH")
                             || roomTypeRaw.contains("LAB")
@@ -552,6 +577,8 @@ public class ExcelScheduleService {
                             || roomCode.toUpperCase().contains("LAB");
 
                     int capacity = parseIntSafe(capacityStr, isLab ? 30 : 60);
+                    ScheduleValidation.text(roomCode, 50, "Dòng " + (i + 1) + ": mã phòng");
+                    if (capacity < 1 || capacity > 1000) throw new IllegalArgumentException("Dòng " + (i + 1) + ": sức chứa phòng không hợp lệ.");
                     String normalizedType;
                     if (isLab) {
                         normalizedType = "LAB_PRACTICE";
@@ -563,7 +590,7 @@ public class ExcelScheduleService {
                         normalizedType = "THEORY_STANDARD";
                     }
 
-                    Room room = roomRepository.findByRoomCodeIgnoreCase(roomCode)
+                    Room room = roomRepository.findBySchoolCodeAndRoomCodeIgnoreCase(schoolCode, roomCode)
                             .orElse(new Room());
                     room.setRoomCode(roomCode);
                     room.setRoomName((isLab ? "Phòng LAB " : "Phòng LT ") + roomCode);
@@ -583,68 +610,32 @@ public class ExcelScheduleService {
         }
 
         // Nếu không truyền file phòng học, lấy từ Database MySQL
-        List<Room> dbRooms = roomRepository.findAllByOrderByCapacityAsc();
+        List<Room> dbRooms = roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolCode);
         if (!dbRooms.isEmpty()) {
             return dbRooms;
         }
 
-        // Nếu Database chưa có phòng nào, tự động khởi tạo 35 phòng chuẩn và lưu vào MySQL
-        List<Room> defaultRooms = createDefault35RoomsInDb(schoolCode);
-        defaultRooms.sort(Comparator.comparingInt(Room::getCapacity));
-        return defaultRooms;
+        // An empty catalogue requires explicit room input instead of invented inventory.
+        throw new IllegalArgumentException("Trường chưa có danh mục phòng; cần tải file phòng học.");
     }
 
-    private List<Room> createDefault35RoomsInDb(String schoolCode) {
-        List<Room> rooms = new ArrayList<>();
-        // Tầng 1: 5 Giảng đường lớn (Sức chứa 150 SV)
-        for (int r = 1; r <= 5; r++) {
-            rooms.add(Room.builder().roomCode(String.format("1%02d-A2", r)).roomName("Giảng đường 10" + r)
-                    .roomType("THEORY_LARGE").capacity(150).isLab(false).building("A2").schoolCode(schoolCode).build());
+    private String convertDateRangeToWeekString(String value, LocalDate anchor, int day) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("Missing study weeks/date range.");
+        if (!value.contains("/")) {
+            if (!value.matches("[a-zA-Z0-9 -]{1,100}") || value.replaceAll("[- ]", "").isEmpty())
+                throw new IllegalArgumentException("Invalid study week string.");
+            return value;
         }
-        // Tầng 2-3: 10 Phòng lý thuyết vừa (Sức chứa 100 SV)
-        for (int f = 2; f <= 3; f++) {
-            for (int r = 1; r <= 5; r++) {
-                String code = String.format("%d%02d-A2", f, r);
-                rooms.add(Room.builder().roomCode(code).roomName("Phòng LT " + code)
-                        .roomType("THEORY_MEDIUM").capacity(100).isLab(false).building("A2").schoolCode(schoolCode).build());
-            }
+        var dates = extractDates(value);
+        if (dates.size() != 2 || dates.get(1).isBefore(dates.get(0))) throw new IllegalArgumentException("Invalid study date range.");
+        var weeks = new StringBuilder();
+        for (int w = 0; w < 100; w++) {
+            var date = anchor.plusDays(w * 7L + day - 2);
+            weeks.append(!date.isBefore(dates.get(0)) && !date.isAfter(dates.get(1)) ? '1' : '-');
         }
-        // Tầng 4-5: 10 Phòng lý thuyết chuẩn (Sức chứa 60 SV)
-        for (int f = 4; f <= 5; f++) {
-            for (int r = 1; r <= 5; r++) {
-                String code = String.format("%d%02d-A2", f, r);
-                rooms.add(Room.builder().roomCode(code).roomName("Phòng LT " + code)
-                        .roomType("THEORY_STANDARD").capacity(60).isLab(false).building("A2").schoolCode(schoolCode).build());
-            }
-        }
-        // Tầng 6-7: 10 Phòng máy thực hành LAB (Sức chứa 30 SV/tổ)
-        for (int f = 6; f <= 7; f++) {
-            for (int r = 1; r <= 5; r++) {
-                String code = String.format("%d%02d-LAB-A2", f, r);
-                rooms.add(Room.builder().roomCode(code).roomName("Phòng LAB " + code)
-                        .roomType("LAB_PRACTICE").capacity(30).isLab(true).building("A2").schoolCode(schoolCode).build());
-            }
-        }
-        return roomRepository.saveAll(rooms);
-    }
-
-    private String convertDateRangeToWeekString(String rangeText, LocalDate semesterMonday, int maxWeeks) {
-        if (rangeText == null || rangeText.isBlank()) return "1111111111111111";
-        if (!rangeText.contains("/")) return rangeText.trim();
-
-        List<LocalDate> dates = extractDates(rangeText);
-        if (dates.size() < 2) return "1111111111111111";
-
-        int startWeek = (int) ChronoUnit.WEEKS.between(semesterMonday, dates.get(0)) + 1;
-        int endWeek = (int) ChronoUnit.WEEKS.between(semesterMonday, dates.get(1)) + 1;
-        startWeek = Math.max(1, startWeek);
-        endWeek = Math.min(maxWeeks, Math.max(startWeek, endWeek));
-
-        StringBuilder sb = new StringBuilder();
-        for (int w = 1; w <= maxWeeks; w++) {
-            sb.append((w >= startWeek && w <= endWeek) ? '1' : '-');
-        }
-        return sb.toString();
+        if (dates.get(0).isBefore(anchor) || dates.get(1).isAfter(anchor.plusWeeks(100).minusDays(1)) || weeks.indexOf("1") < 0)
+            throw new IllegalArgumentException("Study dates are outside the semester anchor/100 weeks or contain no class day.");
+        return weeks.toString().replaceFirst("-+$", "");
     }
 
     private LocalDate detectEarliestMonday(Sheet sheet, DataFormatter formatter) {
@@ -682,14 +673,50 @@ public class ExcelScheduleService {
             if (year < 100) year += 2000;
             return LocalDate.of(year, month, day);
         } catch (Exception e) {
-            return null;
+            throw new IllegalArgumentException("Invalid calendar date: " + dateStr);
         }
     }
 
     private int parseDayOfWeek(String dayStr) {
         String s = dayStr.trim().toUpperCase();
         if (s.equals("CN") || s.contains("CHỦ NHẬT") || s.equals("8")) return 8;
-        return parseIntSafe(s.replaceAll("[^0-9]", ""), 2);
+        if (!s.matches("(?:THỨ\\s*)?[2-7]")) throw new IllegalArgumentException("Thứ phải từ 2 đến 8 hoặc CN.");
+        return Integer.parseInt(s.substring(s.length() - 1));
+    }
+
+    private void validateFile(MultipartFile file) {
+        if (file == null || file.isEmpty() || file.getSize() > 10 * 1024 * 1024
+                || file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
+            throw new IllegalArgumentException("Cần file .xlsx không rỗng, tối đa 10 MB.");
+        }
+    }
+
+    private boolean rowIsEmpty(Row row, DataFormatter formatter) {
+        for (Cell cell : row) if (!formatter.formatCellValue(cell).isBlank()) return false;
+        return true;
+    }
+
+    private List<PeriodTimeDTO> readPeriods(Workbook workbook, DataFormatter formatter) {
+        Sheet sheet = workbook.getSheet("TietHoc");
+        if (sheet == null) throw new IllegalArgumentException("Thiếu sheet TietHoc (period, start, end); cần cung cấp bảng giờ thực của trường.");
+        var periods = new ArrayList<PeriodTimeDTO>();
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null || rowIsEmpty(row, formatter)) continue;
+            try {
+                periods.add(new PeriodTimeDTO(parseIntSafe(getCellText(row, 0, formatter), 0),
+                        periodTime(row.getCell(1), formatter), periodTime(row.getCell(2), formatter)));
+            } catch (RuntimeException e) { throw new IllegalArgumentException("TietHoc dòng " + (i + 1) + ": tiết/giờ không hợp lệ."); }
+        }
+        ScheduleValidation.periods(periods);
+        return periods;
+    }
+
+    private LocalTime periodTime(Cell cell, DataFormatter formatter) {
+        if (cell != null && cell.getCellType() == CellType.NUMERIC && cell.getNumericCellValue() >= 0 && cell.getNumericCellValue() < 1) {
+            return LocalTime.ofSecondOfDay(Math.round(cell.getNumericCellValue() * 86400) % 86400);
+        }
+        return LocalTime.parse(cell == null ? "" : formatter.formatCellValue(cell).trim());
     }
 
     private String getCellText(Row row, int cellIndex, DataFormatter formatter) {
@@ -698,12 +725,11 @@ public class ExcelScheduleService {
         return (cell == null) ? "" : formatter.formatCellValue(cell).trim();
     }
 
-    private int parseIntSafe(String val, int defaultVal) {
-        try {
-            return Integer.parseInt(val.replaceAll("[^0-9]", "").trim());
-        } catch (Exception e) {
-            return defaultVal;
-        }
+    private int parseIntSafe(String value, int defaultValue) {
+        if (value == null || value.isBlank()) return defaultValue;
+        if (!value.trim().matches("[0-9]+")) throw new IllegalArgumentException("Expected a nonnegative integer: " + value);
+        try { return Integer.parseInt(value.trim()); }
+        catch (NumberFormatException e) { throw new IllegalArgumentException("Integer out of range: " + value); }
     }
 
     private String extractTeacherId(String raw) {

@@ -2,11 +2,11 @@ import { getAccessToken, setAccessToken } from './authSession.js';
 export const dayNames = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
 
 export const minutes = value => {
-  const [hour, minute] = String(value).split(':').map(Number);
-  return hour * 60 + (minute || 0);
+  const [hour, minute, second] = String(value).split(':').map(Number);
+  return hour * 60 + (minute || 0) + (second || 0) / 60;
 };
 
-export const clock = value => String(value ?? '').slice(0, 5);
+export const clock = value => String(value ?? '').replace(/:00$/, match => String(value).length === 8 ? '' : match);
 
 export const dateLabel = value => value ? value.split('-').reverse().join('/') : '';
 
@@ -27,12 +27,13 @@ export function currentWeek(start) {
 }
 
 export function calendarFile(lessons) {
+  const timeStamp = value => String(value).slice(0, 8).split(':').map(part => part.padStart(2, '0')).join('').padEnd(6, '0');
   const escape = value => String(value ?? '').replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Campus//Teaching Schedule//VI', ...lessons.flatMap((lesson, index) => [
     'BEGIN:VEVENT', `UID:${encodeURIComponent(lesson.schoolId)}-${lesson.date}-${index}@campus.local`, `DTSTAMP:${stamp}`,
-    `DTSTART;TZID=Asia/Ho_Chi_Minh:${lesson.date.replaceAll('-', '')}T${clock(lesson.startTime).replace(':', '')}00`,
-    `DTEND;TZID=Asia/Ho_Chi_Minh:${lesson.date.replaceAll('-', '')}T${clock(lesson.endTime).replace(':', '')}00`,
+    `DTSTART;TZID=Asia/Ho_Chi_Minh:${lesson.date.replaceAll('-', '')}T${timeStamp(lesson.startTime)}`,
+    `DTEND;TZID=Asia/Ho_Chi_Minh:${lesson.date.replaceAll('-', '')}T${timeStamp(lesson.endTime)}`,
     `SUMMARY:${escape(lesson.courseName)}`, `LOCATION:${escape(`${lesson.schoolName} ·${lesson.room}`)}`, 'END:VEVENT',
   ]), 'END:VCALENDAR', ''].join('\r\n');
 }
@@ -75,7 +76,7 @@ export async function api(path, options = {}) {
     response = await fetch(fullUrl, { ...options, headers });
   } catch (error) {
     if (error.name === 'AbortError') throw error;
-    throw new Error('Không kết nối được máy chủ. Kiểm tra backend đang chạy ở cổng 8080.');
+    throw new Error('Không kết nối được máy chủ. Kiểm tra kết nối mạng rồi thử lại.');
   }
   const body = await response.text();
   let data;
@@ -90,7 +91,8 @@ export async function api(path, options = {}) {
       globalThis.window?.dispatchEvent(new Event('campus-auth-expired'));
     }
     const detail = data?.message || data?.detail || data?.error;
-    const error = new Error(detail ? String(detail) : `Không tải/lưu được lịch (HTTP ${response.status}). Kiểm tra máy chủ và mã giảng viên.`);
+    const messages = { 400: 'Dữ liệu không hợp lệ. Kiểm tra thông tin đã nhập.', 401: 'Phiên đăng nhập hết hạn hoặc thông tin đăng nhập không đúng.', 403: 'Tài khoản không có quyền thực hiện thao tác này.', 404: 'Không tìm thấy hồ sơ hoặc lịch được yêu cầu.', 409: 'Dữ liệu xung đột với thông tin hiện có. Kiểm tra lại trước khi gửi.', 413: 'File vượt giới hạn dung lượng cho phép.', 500: 'Máy chủ gặp lỗi. Thử lại sau; nếu vừa lưu lịch, hãy tải lại lịch để kiểm tra.' };
+    const error = new Error(detail ? String(detail) : messages[response.status] || `Không thực hiện được yêu cầu (HTTP ${response.status}).`);
     error.status = response.status;
     throw error;
   }

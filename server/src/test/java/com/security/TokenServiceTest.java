@@ -5,6 +5,10 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class TokenServiceTest {
+    @org.junit.jupiter.api.Test void productionRejectsAnEmptySigningKey() {
+        var environment = new org.springframework.mock.env.MockEnvironment(); environment.setActiveProfiles("prod");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> new TokenService("", 3600, environment));
+    }
     @Test void validatesSignatureAndRejectsExpiredTokens() {
         var service = new TokenService("", 3600);
         assertEquals("GV01", service.subject(service.issue("GV01")));

@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "rooms")
+@Table(name = "rooms", uniqueConstraints = @UniqueConstraint(name = "uq_room_school_code", columnNames = {"school_code", "room_code"}))
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -15,7 +15,7 @@ public class Room {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "room_code", nullable = false, unique = true, length = 50)
+    @Column(name = "room_code", nullable = false, length = 50)
     private String roomCode;
 
     @Column(name = "room_name", length = 100)

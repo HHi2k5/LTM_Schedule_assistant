@@ -1,10 +1,13 @@
 # Phân quyền và tải Excel lịch đã xếp
 
+> Cập nhật 27/10/2026: đã bỏ chức năng ADMIN cấp tài khoản giảng viên. Giảng viên tự đăng ký, nhận mã do server tạo và cung cấp mã đó cho trường khi phân công. Xem [bản sửa backend](backend-fixes.md) về đăng ký, đổi mật khẩu, sheet giờ bắt buộc và kết quả xếp lịch chưa lưu.
+
 ## Sử dụng
 
 - Giảng viên (`TEACHER`): nhập Excel và quản lý lịch của chính mã GV đã đăng nhập. Không có trang/nút xếp lịch toàn trường.
 - Quản lý (`ADMIN`): xếp lịch bằng Excel phân công hoặc bảng nhập nhanh, xem lịch theo mã GV, tải kết quả Excel. Không có trang/nút nhập lịch cá nhân.
 - Đăng ký trên giao diện luôn tạo TEACHER. Quyền ADMIN được cấp bởi người quản trị database, không chọn trên form đăng ký.
+- ADMIN không tạo tài khoản giảng viên trên web hoặc qua API. Giảng viên tự đăng ký và quản lý mật khẩu cá nhân tại Cài đặt. Tài khoản đã tồn tại vẫn đăng nhập như trước.
 - Các phiên đăng nhập cũ lưu bằng localStorage không còn hợp lệ; đăng nhập lại sau cập nhật.
 
 ## Cấp quyền quản lý

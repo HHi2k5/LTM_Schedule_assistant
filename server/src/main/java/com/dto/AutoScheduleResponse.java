@@ -11,6 +11,7 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class AutoScheduleResponse {
+    private boolean saved;
     private String schoolId;
     private String schoolName;
     private java.time.LocalDate semesterStartDate;

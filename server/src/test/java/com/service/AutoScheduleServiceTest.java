@@ -17,10 +17,10 @@ class AutoScheduleServiceTest {
         var teachers = mock(TeacherRepository.class);
         when(teachers.findTeacherWithFullSchedule(anyString())).thenReturn(Optional.empty());
         var rooms = mock(RoomRepository.class);
-        var theory = new Room(); theory.setRoomCode("101-A2"); theory.setCapacity(60); theory.setLab(false);
-        var lab = new Room(); lab.setRoomCode("LAB-A2"); lab.setCapacity(30); lab.setLab(true);
-        when(rooms.findAllByOrderByCapacityAsc()).thenReturn(List.of(theory, lab));
-        var service = new AutoScheduleService(teachers, rooms, mock(ScheduleService.class));
+        var theory = new Room(); theory.setRoomCode("101-A2"); theory.setCapacity(60); theory.setLab(false); theory.setSchoolCode("PTIT");
+        var lab = new Room(); lab.setRoomCode("LAB-A2"); lab.setCapacity(30); lab.setLab(true); lab.setSchoolCode("PTIT");
+        when(rooms.findBySchoolCodeOrderByCapacityAsc("PTIT")).thenReturn(List.of(theory, lab));
+        var service = new AutoScheduleService(teachers, rooms, mock(ScheduleService.class), mock(ScheduleWriteLock.class));
         List<PeriodTimeDTO> periods = new ArrayList<>();
         for (int p = 1; p <= 10; p++) periods.add(new PeriodTimeDTO(p, LocalTime.of(6 + p, 0), LocalTime.of(6 + p, 50)));
         var request = SchoolWideScheduleRequest.builder().semesterStartDate(LocalDate.of(2026, 8, 10))
