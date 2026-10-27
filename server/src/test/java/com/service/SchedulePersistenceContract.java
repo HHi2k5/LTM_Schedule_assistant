@@ -46,6 +46,8 @@ abstract class SchedulePersistenceContract {
         assertThrows(IllegalArgumentException.class, () -> schedules.saveOrUpdateSchoolSchedule(changed));
         var result = schedules.getWeeklySchedule("GV01", 1);
         assertEquals(1, result.getLessons().size()); assertEquals(BackendRegressionTest.MONDAY, result.getLessons().getFirst().getDate());
+        assertEquals(input.getSchool().getSchoolId(), result.getSchools().getFirst().getSchoolId());
+        assertEquals(input.getSchool().getPeriods(), result.getSchools().getFirst().getPeriods());
     }
     @Test void partialPlanKeepsExistingDatabaseSchedule() {
         var input = BackendRegressionTest.upload(); input.getSchool().setSchoolId("A"); schedules.saveOrUpdateSchoolSchedule(input);

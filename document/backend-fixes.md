@@ -4,6 +4,10 @@ Ngày: 26/10/2026. Áp dụng cho `backend-audit-plan.md`.
 
 Cập nhật 27/10/2026: đã bỏ chức năng ADMIN cấp tài khoản giảng viên ở cả frontend và backend. Giảng viên tự đăng ký; chức năng đổi mật khẩu cá nhân vẫn hoạt động.
 
+API lịch tuần hiện trả thêm `schools`, gồm thông tin trường và toàn bộ bảng `periods` (`period`, `start`, `end`) theo số tiết. Bảng giờ vẫn được trả khi tuần không có buổi dạy; không suy ra giờ tiết từ các lớp đang học. Frontend dùng dữ liệu này để hiện đủ số tiết ở cột trái sau tải lại trang, kể cả lịch do ADMIN xếp và tiết không có lớp. Không thay đổi schema database.
+
+Kiểm chứng bản sửa cột tiết ngày 27/10/2026: 34 test backend liên quan lịch/quyền/persistence, 21 test dữ liệu frontend và 2 lượt browser test desktop/mobile đều qua. Đã build và cập nhật Docker; API và giao diện thật hiện đủ tiết 1–12 với một lớp ở tiết 4–6, kể cả sau tải lại trang. Tài khoản và lịch tạm đã được xóa sau kiểm tra.
+
 ## Hành vi sau khi sửa
 
 | Mã | Bản sửa |

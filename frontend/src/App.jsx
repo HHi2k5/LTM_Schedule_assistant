@@ -127,7 +127,9 @@ export default function App() {
   const schools = [...new Map(lessons.map(lesson => [lesson.schoolId, { id: lesson.schoolId, name: lesson.schoolName }])).values()];
   const visible = lessons.filter(lesson => (schoolFilter === 'all' || lesson.schoolId === schoolFilter) && `${lesson.courseName} ${lesson.room} ${lesson.schoolName}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
   const semesterStart = schedule?.startDate ? addDays(schedule.startDate, -(week - 1) * 7) : authUser.semesterStartDate || '2026-08-10';
-  const periodConfigs = configs[teacherId] || {};
+  const periodConfigs = Array.isArray(schedule?.schools)
+    ? Object.fromEntries(schedule.schools.map(school => [school.schoolId, school]))
+    : configs[teacherId] || {};
   const totalHours = lessons.reduce((sum, lesson) => sum + minutes(lesson.endTime) - minutes(lesson.startTime), 0) / 60;
   const conflictCount = lessons.filter(lesson => lesson.isConflict).length;
 
@@ -259,7 +261,7 @@ function WeekCalendar({ lessons, startDate, configs, onSelect }) {
   const referenceId = schools.some(([id]) => id === reference) ? reference : schools[0]?.[0];
   const referenceLessons = lessons.filter(lesson => lesson.schoolId === referenceId);
   const configured = configs[referenceId]?.periods;
-  const periods = configured?.length ? configured : [...new Map(referenceLessons.map(lesson => [lesson.startPeriod, { period: lesson.startPeriod, start: lesson.startTime, end: lesson.endTime }])).values()];
+  const periods = [...(configured?.length ? configured : new Map(referenceLessons.map(lesson => [lesson.startPeriod, { period: lesson.startPeriod, start: lesson.startTime, end: lesson.endTime }])).values())].sort((a, b) => a.period - b.period);
   const start = Math.floor(Math.min(420, ...lessons.map(lesson => minutes(lesson.startTime)), ...periods.map(period => minutes(period.start))) / 60) * 60;
   const end = Math.ceil(Math.max(1020, ...lessons.map(lesson => minutes(lesson.endTime)), ...periods.map(period => minutes(period.end))) / 60) * 60;
   const positioned = layoutLessons(lessons);

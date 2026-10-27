@@ -92,7 +92,7 @@ Backend tìm hoặc tạo giảng viên, sau đó tìm hoặc tạo trường th
 - Duyệt các trường và môn/lớp của giảng viên; chỉ lấy các dòng có học trong tuần được chọn.
 - Tính ngày học từ thứ và ngày Thứ Hai của tuần; lấy giờ thực tế từ bảng tiết của trường.
 - Kiểm tra trùng giờ, sau đó sắp xếp buổi theo ngày và giờ bắt đầu.
-- Trả `WeekScheduleResponse` gồm mã giảng viên, số tuần, ngày đầu/cuối tuần và danh sách `lessons`.
+- Trả `WeekScheduleResponse` gồm mã giảng viên, số tuần, ngày đầu/cuối tuần, `schools` và danh sách `lessons`. Mỗi phần tử `schools` gồm `schoolId`, `schoolName`, `colorCode` và toàn bộ `periods` (`period`, `start`, `end`) đã lưu, sắp theo số tiết, kể cả khi tuần đó không có buổi dạy.
 - Mỗi `LessonSlot` gồm trường, màu trường, tên môn, phòng, thứ, ngày, tiết đầu/cuối, giờ đầu/cuối, `isConflict` và `conflictReason`.
 
 ### 3.4. Hiển thị lịch
@@ -100,9 +100,9 @@ Backend tìm hoặc tạo giảng viên, sau đó tìm hoặc tạo trường th
 - Hiển thị lịch tuần hoặc danh sách các buổi dạy từ dữ liệu backend.
 - Chuyển tuần phải tải đúng lịch của tuần được chọn; không lặp dữ liệu mẫu ở mọi tuần.
 - Phân biệt lịch các trường bằng tên và màu trường.
-- Cột trái hiển thị **Tiết** và số tiết; thẻ buổi dạy hiển thị giờ thực tế và thông tin trường/môn/phòng.
+- Cột trái hiển thị **Tiết** và đầy đủ số tiết đã khai báo của trường tham chiếu, gồm cả tiết không có lớp; không chỉ hiện số tiết bắt đầu của buổi dạy. Lấy bảng tiết từ API lịch tuần để tải lại trang hoặc đổi thiết bị vẫn hiển thị đúng. Thẻ buổi dạy hiển thị giờ thực tế và thông tin trường/môn/phòng.
 - Vị trí và chiều cao thẻ tính theo giờ thực tế, chính xác đến phút. Buổi bắt đầu 7:10 hoặc 7:20 phải thấp hơn buổi bắt đầu 7:00 theo tỷ lệ thời gian.
-- Khi các trường có bảng tiết khác nhau, dùng cùng thang thời gian để định vị thẻ; số tiết gốc của từng trường được giữ trong chi tiết buổi dạy. Quy ước số tiết tham chiếu trên cột trái cần được thống nhất khi hoàn thiện giao diện.
+- Khi các trường có bảng tiết khác nhau, chọn trường ở **Tiết tham chiếu** để đổi số tiết trên cột trái. Các thẻ vẫn dùng cùng thang thời gian thực tế; số tiết gốc của từng trường được giữ trong chi tiết buổi dạy.
 - Không mặc định mọi tiết dài 60 phút; sử dụng giờ trong cấu hình trường.
 - Làm nổi bật buổi có `isConflict = true` và hiển thị lý do từ backend.
 - Hiển thị trạng thái trống khi chưa nhập lịch hoặc tuần đó không có buổi dạy.
@@ -224,7 +224,7 @@ Backend hiện chưa có thực thể học kỳ độc lập, tài khoản đă
 
 - Cần file Excel mẫu để xác định sheet, tiêu đề, ô gộp, cách ghi môn/lớp và tuần học trước khi viết bộ đọc.
 - Cần chốt cách cung cấp bảng giờ tiết và quy đổi mốc tuần giữa các trường.
-- Cần chốt trục số tiết tham chiếu khi hiển thị lịch nhiều trường có giờ tiết khác nhau.
+- Trục số tiết tham chiếu dùng bảng giờ của trường được chọn; mọi thẻ vẫn định vị theo giờ thực tế của từng trường.
 - Backend hiện dùng giờ dự phòng 07:00/11:00 nếu không tìm thấy tiết. Đây là giới hạn cần sửa bằng kiểm tra và báo lỗi để đạt yêu cầu độ chính xác.
 - Backend chưa kiểm tra đầy đủ trường bắt buộc, mốc tuần, số tuần và dữ liệu tiết/môn; cần hoàn thiện theo mục 3.5.
 - `semesterStartDate` hiện có thể được cập nhật khi nhập một trường, ảnh hưởng mọi trường; cần kiểm soát khi tích hợp nhập nhiều trường.

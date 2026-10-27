@@ -16,5 +16,6 @@ public class WeekScheduleResponse {
     private int weekIndex;
     private LocalDate startDate;
     private LocalDate endDate;
+    private List<SchoolConfigDTO> schools;
     private List<LessonSlot> lessons;
 }

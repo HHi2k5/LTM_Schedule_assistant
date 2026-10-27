@@ -40,7 +40,7 @@ Mốc tuần 1 phải là Thứ Hai trong năm 2000–2100. Thời gian học nh
 
 Nhập lại cùng mã trường sẽ thay lịch của trường đó thuộc giảng viên đang đăng nhập. Giữ mốc tuần 1 của lịch đang có để đồng bộ các trường. API lịch tuần chưa cung cấp cờ “đã có lịch ở tuần khác”; khi tuần 1 rỗng, server sẽ kiểm tra ràng buộc mốc lúc lưu và báo lỗi nếu khác mốc đã dùng. Frontend không coi tuần rỗng là hồ sơ mới.
 
-Lịch tuần, thống kê và cảnh báo trùng giờ lấy từ backend. Bảng tiết tham chiếu sau import được nhớ trên thiết bị; localStorage không phải nguồn lịch chính.
+Lịch tuần, thống kê và cảnh báo trùng giờ lấy từ backend. Cột **Tiết** hiện đầy đủ các số tiết trong `schools[].periods` của API lịch tuần, kể cả tiết không có lớp; tải lại trang hoặc đổi thiết bị không cần nhập lại file để có bảng tiết. Chọn **Tiết tham chiếu** để dùng bảng giờ của trường khác; vị trí các buổi dạy vẫn theo giờ thực tế. Bảng giờ trả về từ server được ưu tiên hơn bản nhớ cũ trên thiết bị. localStorage chỉ dự phòng khi kết nối phiên bản backend cũ chưa trả trường `schools`.
 
 ## Xếp lịch và tải kết quả
 
@@ -63,7 +63,7 @@ npm.cmd run test:browser
 npm.cmd run build
 ```
 
-Hiện có 21 test dữ liệu/API và 24 lượt browser test (12 luồng × desktop 1440px/mobile 390px), gồm đổi mật khẩu cho ADMIN/giảng viên, không còn trang cấp tài khoản và đồng hồ cập nhật qua nửa đêm theo giờ Việt Nam. Browser test dùng API mock theo contract để không ghi DB dev. Ảnh và trace khi lỗi được sinh trong `test-results/`, báo cáo HTML trong `playwright-report/` (được gitignore). Chạy browser test bằng Chromium; chưa kiểm tra Safari/Firefox.
+Hiện có 21 test dữ liệu/API và 26 lượt browser test (13 luồng × desktop 1440px/mobile 390px), gồm đổi mật khẩu cho ADMIN/giảng viên, không còn trang cấp tài khoản, đồng hồ cập nhật qua nửa đêm và cột tiết đầy đủ sau tải lại trang với nhiều trường có giờ tiết khác nhau. Browser test dùng API mock theo contract để không ghi DB dev. Ảnh và trace khi lỗi được sinh trong `test-results/`, báo cáo HTML trong `playwright-report/` (được gitignore). Chạy browser test bằng Chromium; chưa kiểm tra Safari/Firefox.
 
 Đã bỏ dependency `@vitejs/plugin-react` không được cấu hình sử dụng và có peer dependency xung đột Vite 6. Trang ADMIN/ExcelJS được tải theo nhu cầu; chunk ExcelJS vẫn lớn. `npm audit` còn báo 2 mục moderate liên quan ExcelJS/uuid; chưa áp dụng đề xuất hạ major ExcelJS vì cần đánh giá tương thích riêng.
 
