@@ -9,5 +9,6 @@ test('teacher and manager have different entry points and cannot navigate to eac
   assert.equal(canVisit(teacher, 'autoschedule'), false); assert.equal(canVisit(manager, 'import'), false);
   assert.equal(canVisit(teacher, 'import'), true); assert.equal(canVisit(manager, 'autoschedule'), true);
   assert.equal(canVisit(manager, 'schedule'), true); assert.equal(canVisit(null, 'schedule'), false);
+  assert.equal(canVisit(teacher, 'overview'), true); assert.equal(canVisit(manager, 'overview'), false);
   assert.equal(canVisit({ role: 'unknown' }, 'overview'), false);
 });

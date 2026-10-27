@@ -8,7 +8,7 @@ const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const slot = { teacherId: 'GV01', teacherName: 'Nguyễn Văn A', courseCode: 'NET', courseName: 'Mạng máy tính', baseCourseName: 'Mạng máy tính', classGroup: '01', cohort: '2024', credits: 3, sessionType: 'THEORY', studentCount: 50, room: '101', roomCapacity: 60, dayOfWeek: 2, startPeriod: 1, numPeriods: 1, weekSchedule: '---11' };
 
 async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures = 0, lessons = [], schools } = {}) {
-  const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, emptyAuto: false, restoreFailures, roomCount: 1, lessons, schools };
+  const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, emptyAuto: false, restoreFailures, roomCount: 1, lessons, schools, weekFailure: false };
   const user = { role, teacherId: role === 'ADMIN' ? 'ADMIN' : teacherId, username: role.toLowerCase(), fullName: role === 'ADMIN' ? 'Quản lý đào tạo' : 'Nguyễn Văn A', semesterStartDate: anchor };
   if (!anonymous) await page.addInitScript(() => sessionStorage.setItem('campus-access-token', 'test-token'));
   await page.route('https://fonts.googleapis.com/**', route => route.abort());
@@ -36,6 +36,7 @@ async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures
     });
     if (path === '/upload-excel-teacher') { state.saved = true; return respond({ status: 'SUCCESS' }); }
     if (path.startsWith('/week/')) {
+      if (state.weekFailure) return respond({ message: 'Máy chủ đang bận.' }, 500);
       const week = Number(path.split('/').at(-1));
       const startDate = addDays(anchor, (week - 1) * 7);
       return respond({ teacherId: url.searchParams.get('teacherId'), weekIndex: week, startDate, endDate: addDays(startDate, 6), lessons: state.lessons, schools: state.schools });
@@ -91,6 +92,7 @@ test('weekly calendar shows every server period after reload and uses each refer
   await expect(axis.nth(5)).toHaveAttribute('title', '13:00 – 13:50');
   expect(await axis.nth(5).evaluate(element => parseFloat(element.style.top))).toBeCloseTo(399);
   const networking = page.locator('.session-card').filter({ hasText: 'Networking' });
+  await expect(networking.locator('.lesson-card-school')).toBeVisible();
   expect(await networking.evaluate(element => parseFloat(element.style.top))).toBeCloseTo(200);
 
   // An old browser import must not replace the current period table from the server.
@@ -105,6 +107,214 @@ test('weekly calendar shows every server period after reload and uses each refer
   await expect(axis.first()).toHaveAttribute('title', '07:20 – 08:10');
   expect(await axis.first().evaluate(element => parseFloat(element.style.top))).toBeCloseTo(25);
   expect(await networking.evaluate(element => parseFloat(element.style.top))).toBeCloseTo(200);
+});
+
+const shortLesson = {
+  schoolId: 'PTIT', schoolName: 'Học viện Công nghệ Bưu chính Viễn thông', colorCode: '#2563eb',
+  courseName: 'Phân tích và thiết kế hệ thống thông tin (Nhóm 7)', room: '505-NT',
+  dayOfWeek: 6, date: '2026-08-14', startPeriod: 6, endPeriod: 6, startTime: '12:00', endTime: '12:50',
+};
+
+test('short lesson keeps time and room visible and opens full details by click or touch', async ({ page }, testInfo) => {
+  const adjacent = { ...shortLesson, courseName: 'Môn học kế tiếp', startTime: '12:50', endTime: '13:40', startPeriod: 7, endPeriod: 7 };
+  await boot(page, { lessons: [shortLesson, adjacent] });
+  const card = page.locator('.lesson-card').filter({ hasText: shortLesson.courseName });
+  await expect(card).toHaveClass(/is-compact/);
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.locator('.session-time')).toHaveText('12:00 – 12:50');
+  await expect(card.locator('.lesson-card-room')).toHaveText('505-NT');
+  await expect(card.locator('.lesson-card-school')).toBeHidden();
+  const bounds = await card.boundingBox();
+  const room = await card.locator('.lesson-card-room').boundingBox();
+  expect(room.y).toBeGreaterThanOrEqual(bounds.y);
+  expect(room.y + room.height).toBeLessThanOrEqual(bounds.y + bounds.height);
+  expect(bounds.height).toBeCloseTo(51);
+  const next = await page.locator('.lesson-card').filter({ hasText: adjacent.courseName }).boundingBox();
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(next.y);
+  await expect(card).toHaveAccessibleName(/Phòng 505-NT.*Tiết 6/);
+  if (testInfo.project.name === 'mobile') await card.tap();
+  else await card.click();
+  const modal = page.getByRole('dialog');
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText(shortLesson.courseName);
+  await expect(modal).toContainText(shortLesson.schoolName);
+  await expect(modal).toContainText('505-NT');
+  await modal.getByRole('button', { name: 'Đóng', exact: true }).click();
+  await expect(card).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await screenshot(page, testInfo, 'short-lesson');
+});
+
+test('short lesson popup supports keyboard, Escape and pointer travel within the viewport', async ({ page }, testInfo) => {
+  await boot(page, { lessons: [{ ...shortLesson, dayOfWeek: 8, date: '2026-08-16' }] });
+  const card = page.locator('.lesson-card');
+  await card.scrollIntoViewIfNeeded();
+  await card.focus();
+  const tooltip = page.getByRole('tooltip');
+  await expect(tooltip).toBeVisible();
+  await expect(card).toHaveAttribute('aria-describedby', await tooltip.getAttribute('id'));
+  await expect(tooltip).toContainText(shortLesson.courseName);
+  await expect(tooltip).toContainText(shortLesson.schoolName);
+  await expect(tooltip).toContainText('505-NT');
+  const bounds = await tooltip.boundingBox();
+  const viewport = page.viewportSize();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.y).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  await expect(card).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  if (testInfo.project.name === 'desktop') {
+    await page.getByLabel('Tìm môn hoặc phòng').focus();
+    await card.hover();
+    await expect(tooltip).toBeVisible();
+    await tooltip.hover();
+    await expect(tooltip).toBeVisible();
+    await page.getByLabel('Tìm môn hoặc phòng').hover();
+    await expect(tooltip).toHaveCount(0);
+  }
+  await page.getByLabel('Tìm môn hoặc phòng').focus();
+  await card.focus();
+  await expect(tooltip).toBeVisible();
+  await page.locator('.calendar-scroll').evaluate(element => element.dispatchEvent(new Event('scroll')));
+  await expect(tooltip).toHaveCount(0);
+  await noOverflow(page);
+});
+
+test('short lesson handles narrow conflict lanes, resizing and very short durations', async ({ page }, testInfo) => {
+  const conflicting = { ...shortLesson, isConflict: true, conflictReason: 'Trùng giờ với buổi thực hành.' };
+  const other = { ...conflicting, courseName: 'Buổi thực hành trùng giờ', room: 'LAB-01' };
+  const tiny = { ...shortLesson, courseName: 'Buổi hướng dẫn 15 phút', startTime: '13:00', endTime: '13:15', startPeriod: 7, endPeriod: 7 };
+  await boot(page, { lessons: [conflicting, other, tiny] });
+  const card = page.locator('.lesson-card').filter({ hasText: shortLesson.courseName });
+  const neighbour = page.locator('.lesson-card').filter({ hasText: other.courseName });
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toHaveClass(/is-narrow/);
+  await expect(card.locator('.lesson-conflict-icon')).toBeVisible();
+  const bounds = await card.boundingBox();
+  const next = await neighbour.boundingBox();
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(next.x);
+  const small = page.locator('.lesson-card').filter({ hasText: tiny.courseName });
+  await expect(small).toHaveClass(/is-tiny/);
+  expect((await small.boundingBox()).height).toBeCloseTo(12.5);
+  await card.focus();
+  await expect(page.getByRole('tooltip')).toContainText(conflicting.conflictReason);
+  await page.setViewportSize({ width: testInfo.project.name === 'desktop' ? 1200 : 430, height: 900 });
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await small.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('dialog')).toContainText(tiny.courseName);
+  await page.keyboard.press('Escape');
+  await noOverflow(page);
+});
+
+async function freezeTime(page, time) {
+  const instant = new Date(time);
+  await page.clock.install({ time: new Date(instant.getTime() - 1000) });
+  await page.clock.pauseAt(instant);
+}
+
+const dailyLessons = [
+  { ...shortLesson, courseName: 'Buổi đã dạy thứ Hai', date: '2026-10-26', dayOfWeek: 2, startTime: '07:00', endTime: '08:00', isConflict: true },
+  { ...shortLesson, courseName: 'Môn đang dạy', date: '2026-10-27', dayOfWeek: 3, startTime: '09:00', endTime: '10:00' },
+  { ...shortLesson, courseName: 'Môn trùng giờ A', date: '2026-10-27', dayOfWeek: 3, startTime: '13:00', endTime: '14:00', isConflict: true },
+  { ...shortLesson, courseName: 'Môn trùng giờ B', date: '2026-10-27', dayOfWeek: 3, startTime: '13:30', endTime: '14:30', isConflict: true },
+  { ...shortLesson, courseName: 'Môn ngày mai', date: '2026-10-28', dayOfWeek: 4, startTime: '07:00', endTime: '08:00' },
+];
+
+test('today dashboard is independent of calendar week and filters and opens the current week', async ({ page }, testInfo) => {
+  await freezeTime(page, '2026-10-27T02:30:00Z');
+  const state = await boot(page, { lessons: dailyLessons });
+  await page.getByRole('button', { name: 'Tuần sau', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Lịch tuần Tuần 2' })).toBeVisible();
+  await page.getByLabel('Tìm môn hoặc phòng').fill('không tìm thấy');
+  await navigate(page, 'Hôm nay');
+  await expect(page.getByRole('heading', { name: 'Hôm nay.', exact: true })).toBeVisible();
+  await expect(page.locator('.today-toolbar')).toContainText('Tuần 12');
+  await expect(page.locator('.today-summary-card>strong')).toHaveText(['3', '4', '3.5', '2']);
+  await expect(page.locator('.today-next-card')).toContainText('Môn đang dạy');
+  await expect(page.locator('.today-next-card')).toContainText('Đang dạy · còn 30 phút');
+  await expect(page.locator('.today-lesson-list li')).toHaveCount(3);
+  await expect(page.locator('.today-attention li')).toHaveCount(2);
+  await expect(page.locator('.today-attention')).not.toContainText('Buổi đã dạy thứ Hai');
+  await expect(page.locator('.week-calendar')).toHaveCount(0);
+  expect(state.calls.some(call => call.path === '/week/12' && call.query.includes(teacherId))).toBe(true);
+  await page.locator('.today-next-card').click();
+  await expect(page.getByRole('dialog')).toContainText('Môn đang dạy');
+  await page.keyboard.press('Escape');
+  await screenshot(page, testInfo, 'today-dashboard');
+  await page.locator('.today-attention li').first().getByRole('button').click();
+  await expect(page.getByRole('heading', { name: 'Lịch tuần Tuần 12' })).toBeVisible();
+  await expect(page.getByLabel('Tìm môn hoặc phòng')).toHaveValue('');
+  await expect(page.locator('.session-card')).toHaveCount(dailyLessons.length);
+});
+
+test('today dashboard updates at lesson end and Vietnam midnight across a new week', async ({ page }) => {
+  await freezeTime(page, '2026-11-01T16:59:58Z');
+  const state = await boot(page);
+  await navigate(page, 'Hôm nay');
+  await expect(page.locator('.today-toolbar')).toContainText('Tuần 12');
+  await expect(page.getByText('Hôm nay không có lịch dạy.', { exact: true })).toBeVisible();
+  await page.clock.runFor(3000);
+  await expect(page.locator('.today-toolbar')).toContainText('Tuần 13');
+  await expect(page.locator('.today-toolbar time')).toContainText('2 tháng 11');
+  await expect.poll(() => state.calls.some(call => call.path === '/week/13')).toBe(true);
+});
+
+test('today dashboard refreshes remaining hours and handles empty days and failed loads', async ({ page }) => {
+  await freezeTime(page, '2026-10-27T02:30:00Z');
+  const state = await boot(page, { lessons: dailyLessons });
+  state.weekFailure = true;
+  await navigate(page, 'Hôm nay');
+  await expect(page.getByRole('alert')).toContainText('Máy chủ đang bận.');
+  await expect(page.locator('.today-summary-card')).toHaveCount(0);
+  state.weekFailure = false;
+  await page.getByRole('button', { name: 'Thử tải lại Hôm nay' }).click();
+  await expect(page.locator('.today-next-card')).toContainText('Môn đang dạy');
+  await page.clock.fastForward(30 * 60000);
+  await expect(page.locator('.today-next-card')).toContainText('Môn trùng giờ A');
+  await expect(page.locator('.today-summary-card>strong')).toHaveText(['3', '3', '3', '2']);
+  await expect(page.locator('.today-lesson').first()).toContainText('Đã kết thúc');
+  state.lessons = [{ ...dailyLessons.at(-1), date: '2026-10-29', dayOfWeek: 5 }];
+  await page.getByRole('button', { name: 'Làm mới Hôm nay' }).click();
+  await expect(page.getByText('Hôm nay không có lịch dạy.', { exact: true })).toBeVisible();
+  await expect(page.locator('.today-next-card')).toContainText('29/10/2026');
+  await noOverflow(page);
+});
+
+test('today dashboard does not request an invalid week before semester', async ({ page }) => {
+  await freezeTime(page, '2026-08-09T02:30:00Z');
+  const state = await boot(page);
+  await navigate(page, 'Hôm nay');
+  await expect(page.getByRole('heading', { name: 'Học kỳ chưa bắt đầu' })).toBeVisible();
+  expect(state.calls.some(call => call.path === '/week/0')).toBe(false);
+  await noOverflow(page);
+});
+
+test('today dashboard uses the semester anchor just saved by personal import', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-27T02:30:00Z'));
+  const state = await boot(page);
+  await navigate(page, 'Nhập lịch dạy');
+  await expect(page.getByText('Tuần 1 bắt đầu: 10/08/2026.', { exact: false })).toBeVisible();
+  await page.getByLabel('Mã trường', { exact: true }).fill('PTIT');
+  await page.getByLabel('Tên trường', { exact: true }).fill('Học viện PTIT');
+  await page.getByLabel('Ngày Thứ Hai của tuần 1', { exact: false }).fill('2026-08-17');
+  const workbook = templateWorkbook();
+  await page.locator('input[type=file]').setInputFiles({ name: 'new-anchor.xlsx', mimeType: mime, buffer: Buffer.from(await workbook.xlsx.writeBuffer()) });
+  await page.getByRole('button', { name: 'Đọc file và xem trước' }).click();
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Xác nhận lưu và xem lịch' }).click();
+  await expect(page.getByRole('heading', { name: 'Lịch giảng dạy.', exact: true })).toBeVisible();
+  await navigate(page, 'Hôm nay');
+  await expect(page.locator('.today-toolbar')).toContainText('Tuần 11');
+  expect(state.calls.some(call => call.path === '/week/11')).toBe(true);
 });
 
 test('header clock updates Vietnam time and date at midnight on desktop and mobile', async ({ page }, testInfo) => {
@@ -239,6 +449,8 @@ test('temporary restore failure preserves token and retry restores the session',
 
 test('ADMIN has no account provisioning page and settings still allows own password change', async ({ page }, testInfo) => {
   const state = await boot(page, { role: 'ADMIN' });
+  await expect(page.getByRole('button', { name: 'Hôm nay', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Tổng quan', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Cấp tài khoản GV', exact: true })).toHaveCount(0);
   await navigate(page, 'Cài đặt');
   await expect(page.getByRole('heading', { name: 'Đổi mật khẩu', exact: true })).toBeVisible();
