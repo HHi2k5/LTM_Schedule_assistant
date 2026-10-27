@@ -24,6 +24,8 @@ import java.util.Map;
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+    @org.springframework.beans.factory.annotation.Value("${app.cors.origins:http://localhost:5173,http://127.0.0.1:5173}")
+    private List<String> allowedOrigins;
     private final TokenFilter tokenFilter;
     private final ObjectMapper mapper;
 
@@ -61,6 +63,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/static/**", "/*.ico", "/*.json").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/schedule/auth/change-password").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/schedule/rooms").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/upload-excel-teacher").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasRole("TEACHER")
@@ -76,8 +79,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // Cho phép tất cả các nguồn (bao gồm cả các domain ngrok từ bên ngoài và localhost)
-        configuration.setAllowedOriginPatterns(List.of("*")); 
+        // Origins are configured per environment, including explicitly permitted ngrok hosts.
+        configuration.setAllowedOriginPatterns(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true); // Cho phép gửi cookie/credential

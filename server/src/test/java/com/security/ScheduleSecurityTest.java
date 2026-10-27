@@ -85,7 +85,7 @@ class ScheduleSecurityTest {
         verify(excel).autoScheduleFrom3Files(any(), isNull(), isNull(), eq("PTIT"), anyString(), isNull());
         mvc.perform(get("/api/schedule/rooms").header("Authorization", "Bearer admin-token"))
                 .andExpect(status().isOk());
-        verify(rooms).findAllByOrderByCapacityAsc();
+        verify(rooms).findBySchoolCodeOrderByCapacityAsc("PTIT");
     }
 
     @Test void teacherCanOnlyReadImportAndDeleteOwnSchedule() throws Exception {
@@ -121,4 +121,51 @@ class ScheduleSecurityTest {
     }
 
     private MockMultipartFile file() { return new MockMultipartFile("file", "input.xlsx", "application/octet-stream", new byte[]{1}); }
+
+    @Test void passwordChangeRequiresLoginAndIgnoresForgedTargetAccount() throws Exception {
+        String body = "{\"currentPassword\":\"old-password\",\"newPassword\":\"new-password\",\"teacherId\":\"QL01\",\"role\":\"ADMIN\"}";
+        mvc.perform(post("/api/schedule/auth/change-password").contentType("application/json").content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/schedule/auth/change-password").contentType("application/json").content(body)
+                .header("Authorization", "Bearer teacher-token"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.accessToken").doesNotExist());
+        verify(auth).changePassword(eq(new AccountPrincipal("GV01", "teacher", "TEACHER")),
+                eq(new com.dto.ChangePasswordRequest("old-password", "new-password")));
+        mvc.perform(post("/api/schedule/auth/change-password").contentType("application/json").content(body)
+                .header("Authorization", "Bearer admin-token")).andExpect(status().isOk());
+        verify(auth).changePassword(eq(new AccountPrincipal("QL01", "manager", "ADMIN")), any());
+    }
+
+    @Test void incorrectCurrentPasswordReturnsFormErrorInsteadOfExpiringSession() throws Exception {
+        doThrow(new IllegalArgumentException("Mật khẩu hiện tại không đúng.")).when(auth).changePassword(any(), any());
+        mvc.perform(post("/api/schedule/auth/change-password").contentType("application/json")
+                .content("{\"currentPassword\":\"wrong\",\"newPassword\":\"new-password\"}")
+                .header("Authorization", "Bearer teacher-token"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("Mật khẩu hiện tại không đúng."));
+    }
+
+    @Test void removedProvisioningEndpointIsDeniedForAllRoles() throws Exception {
+        mvc.perform(post("/api/schedule/auth/provision").contentType("application/json")
+                .content("{\"teacherId\":\"GV01\",\"username\":\"teacher\",\"password\":\"password123\"}")
+                .header("Authorization", "Bearer teacher-token")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/schedule/auth/provision").contentType("application/json")
+                .content("{\"teacherId\":\"GV01\",\"username\":\"teacher\",\"password\":\"password123\"}")
+                .header("Authorization", "Bearer admin-token")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/schedule/auth/provision").contentType("application/json")
+                .content("{}")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(auth);
+    }
+
+    @Test void errorsUseStableStatusesAndDoNotLeakInternalMessages() throws Exception {
+        when(schedules.getWeeklySchedule("GV01", 1)).thenThrow(new com.exception.ResourceNotFoundException("Missing teacher"));
+        mvc.perform(get("/api/schedule/week/1").header("Authorization", "Bearer teacher-token"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value("ERROR"));
+        doThrow(new org.springframework.dao.DataIntegrityViolationException("secret SQL")).when(schedules).getWeeklySchedule("GV01", 1);
+        mvc.perform(get("/api/schedule/week/1").header("Authorization", "Bearer teacher-token"))
+                .andExpect(status().isConflict()).andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret SQL"))));
+        doThrow(new RuntimeException()).when(schedules).getWeeklySchedule("GV01", 1);
+        mvc.perform(get("/api/schedule/week/1").header("Authorization", "Bearer teacher-token"))
+                .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.message").isNotEmpty());
+    }
 }

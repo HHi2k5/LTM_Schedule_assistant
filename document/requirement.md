@@ -20,6 +20,8 @@ Tài liệu bám theo mô hình và API backend hiện có. Các phần đọc t
 
 Giảng viên cơ hữu và thỉnh giảng dùng cùng luồng nhập lịch đã được phân công. Một giảng viên có thể có nhiều trường; mỗi trường có màu hiển thị, bảng giờ tiết và danh sách môn/lớp riêng trong lịch của giảng viên đó.
 
+Cập nhật 27/10/2026: giảng viên tự đăng ký tài khoản TEACHER và nhận mã GV mới từ server. ADMIN quản lý phân công/xếp lịch, không tạo tài khoản giảng viên trên web hoặc qua API. Khi phân công, nhà trường dùng đúng mã GV trên tài khoản giảng viên cung cấp. Tài khoản đã tồn tại và chức năng đổi mật khẩu cá nhân trong Cài đặt được giữ nguyên.
+
 ## 2. Quy tắc nghiệp vụ
 
 1. Lịch được lưu theo giảng viên và từng trường, phù hợp quan hệ `Teacher → School → SchoolPeriod / TeachingCourse` của backend.
@@ -119,7 +121,7 @@ Backend tìm hoặc tạo giảng viên, sau đó tìm hoặc tạo trường th
 
 Các chức năng sau chưa nằm trong luồng backend lịch hiện có, triển khai sau khi nhập/xem lịch hoạt động:
 
-- Đăng nhập và ràng buộc `teacherId` với tài khoản; phân quyền giảng viên/điều phối/quản trị viên.
+- Mở rộng vai trò điều phối khi có yêu cầu; xác thực TEACHER/ADMIN và ràng buộc mã tài khoản đã được cập nhật theo mục 1.3.
 - Gửi và duyệt yêu cầu nghỉ dạy, đề xuất dạy bù liên kết với buổi gốc.
 - Thông báo khi lịch thay đổi hoặc yêu cầu được xử lý.
 - Lịch sử file nhập, thay đổi lịch và nhiều học kỳ.

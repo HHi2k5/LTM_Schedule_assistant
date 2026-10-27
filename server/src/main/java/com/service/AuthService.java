@@ -2,6 +2,7 @@ package com.service;
 
 import com.dto.AuthRequest;
 import com.dto.AuthResponse;
+import com.dto.ChangePasswordRequest;
 import com.model.Teacher;
 import com.repository.TeacherRepository;
 import com.security.TokenService;
@@ -24,36 +25,45 @@ public class AuthService {
     private final TeacherRepository teacherRepository;
     private final TokenService tokens;
     private final PasswordEncoder passwords;
+    private final ScheduleWriteLock writeLock;
 
     @Transactional
     public AuthResponse register(AuthRequest req) {
+        writeLock.acquire();
+        if (req == null) throw new IllegalArgumentException("Thiếu thông tin đăng ký.");
         if (req.getRole() != null && !"TEACHER".equals(req.getRole())) {
             throw new IllegalArgumentException("Đăng ký công khai chỉ dành cho tài khoản giảng viên.");
         }
         if (req.getUsername() == null || req.getUsername().isBlank() ||
-            req.getPassword() == null || req.getPassword().isBlank() ||
-            req.getTeacherId() == null || req.getTeacherId().isBlank()) {
-            throw new IllegalArgumentException("Vui lòng nhập đầy đủ Tên đăng nhập, Mật khẩu và Mã giảng viên.");
+            req.getPassword() == null || req.getPassword().isBlank()) {
+            throw new IllegalArgumentException("Vui lòng nhập tên đăng nhập và mật khẩu.");
         }
 
         String username = req.getUsername().trim();
-        String teacherId = req.getTeacherId().trim().toUpperCase();
+        if (req.getTeacherId() != null && !req.getTeacherId().isBlank()
+                && teacherRepository.findById(req.getTeacherId().trim().toUpperCase(java.util.Locale.ROOT)).isPresent()) {
+            throw new IllegalArgumentException("Không thể đăng ký bằng mã hồ sơ đã tồn tại. Tài khoản mới dùng mã do hệ thống cấp.");
+        }
+        String teacherId = "GV_" + java.util.UUID.randomUUID().toString().replace("-", "").toUpperCase(java.util.Locale.ROOT);
+        ScheduleValidation.text(username, 50, "Tên đăng nhập");
+        ScheduleValidation.text(teacherId, 50, "Mã GV");
+        if (req.getPassword().length() < 8 || req.getPassword().getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalArgumentException("Mật khẩu cần ít nhất 8 ký tự và tối đa 72 byte UTF-8.");
+        }
+        if (req.getFullName() != null && req.getFullName().length() > 100) throw new IllegalArgumentException("Họ tên quá dài.");
 
         if (teacherRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Tên đăng nhập '" + username + "' đã tồn tại!");
         }
 
-        // Nếu mã GV đã được hệ thống xếp lịch tạo trước đó thì cập nhật tài khoản vào mã GV đó
-        Teacher teacher = teacherRepository.findById(teacherId).orElseGet(() ->
-                Teacher.builder()
-                        .teacherId(teacherId)
-                        .semesterStartDate(req.getSemesterStartDate() != null ? req.getSemesterStartDate() : LocalDate.of(2026, 8, 10))
-                        .build()
-        );
-
-        if ("ADMIN".equals(teacher.getRole()) || (teacher.getUsername() != null && !teacher.getUsername().isBlank())) {
-            throw new IllegalArgumentException("Mã giảng viên '" + teacherId + "' đã được đăng ký tài khoản!");
+        if (teacherRepository.findById(teacherId).isPresent()) {
+            throw new IllegalArgumentException("Mã giảng viên được tạo bị trùng. Vui lòng đăng ký lại để nhận mã mới.");
         }
+        LocalDate startDate = req.getSemesterStartDate() != null ? req.getSemesterStartDate() : LocalDate.of(2026, 8, 10);
+        ScheduleValidation.monday(startDate);
+        Teacher teacher = Teacher.builder()
+                        .teacherId(teacherId)
+                        .semesterStartDate(startDate).build();
 
         teacher.setUsername(username);
         teacher.setPassword(passwords.encode(req.getPassword()));
@@ -114,6 +124,36 @@ public class AuthService {
         return AuthResponse.builder().status("SUCCESS").teacherId(teacher.getTeacherId())
                 .fullName(teacher.getFullName()).username(teacher.getUsername()).role(teacher.getRole())
                 .semesterStartDate(teacher.getSemesterStartDate().toString()).build();
+    }
+
+    @Transactional
+    public void changePassword(AccountPrincipal account, ChangePasswordRequest request) {
+        if (account == null) throw new org.springframework.security.access.AccessDeniedException("Cần đăng nhập để đổi mật khẩu.");
+        if (request == null || request.currentPassword() == null || request.currentPassword().isBlank()) {
+            throw new IllegalArgumentException("Nhập mật khẩu hiện tại.");
+        }
+        String next = request.newPassword();
+        if (next == null || next.isBlank() || next.length() < 8 || next.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new IllegalArgumentException("Mật khẩu mới cần ít nhất 8 ký tự và tối đa 72 byte UTF-8.");
+        }
+        // Serialize account writes so two requests cannot both reuse the old password.
+        writeLock.acquire();
+        Teacher teacher = teacherRepository.findById(account.teacherId())
+                .orElseThrow(() -> new BadCredentialsException("Tài khoản không còn tồn tại."));
+        if (!matchesPassword(request.currentPassword(), teacher.getPassword())) {
+            // A wrong current password is a form error, not an expired bearer session.
+            throw new IllegalArgumentException("Mật khẩu hiện tại không đúng.");
+        }
+        if (matchesPassword(next, teacher.getPassword())) {
+            throw new IllegalArgumentException("Mật khẩu mới phải khác mật khẩu hiện tại.");
+        }
+        teacher.setPassword(passwords.encode(next));
+        teacherRepository.save(teacher);
+    }
+
+    private boolean matchesPassword(String raw, String encoded) {
+        if (encoded == null) return false;
+        return encoded.matches("[0-9a-f]{64}") ? hashPassword(raw).equals(encoded) : passwords.matches(raw, encoded);
     }
 
     private String hashPassword(String rawPassword) {

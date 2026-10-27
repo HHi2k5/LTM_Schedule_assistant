@@ -3,3 +3,5 @@ dist/
 .env
 .env.local
 *.log
+frontend/test-results/
+frontend/playwright-report/

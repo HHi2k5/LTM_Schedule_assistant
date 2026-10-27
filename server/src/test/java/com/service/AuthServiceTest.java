@@ -21,7 +21,7 @@ class AuthServiceTest {
     private final BCryptPasswordEncoder passwords = new BCryptPasswordEncoder();
     private AuthService auth;
 
-    @BeforeEach void setup() { auth = new AuthService(teachers, tokens, passwords); }
+    @BeforeEach void setup() { auth = new AuthService(teachers, tokens, passwords, mock(ScheduleWriteLock.class)); }
 
     @Test void publicRegistrationCannotAssignAdmin() {
         AuthRequest request = request(); request.setRole("ADMIN");
@@ -36,12 +36,28 @@ class AuthServiceTest {
         verify(teachers).save(capture.capture());
         assertEquals("TEACHER", capture.getValue().getRole());
         assertTrue(passwords.matches("test-password", capture.getValue().getPassword()));
-        assertEquals("GV01", tokens.subject(response.getAccessToken()));
+        assertEquals(capture.getValue().getTeacherId(), tokens.subject(response.getAccessToken()));
+        assertTrue(capture.getValue().getTeacherId().startsWith("GV_"));
     }
 
     @Test void cannotClaimReservedAdminAccount() {
         when(teachers.findById("GV01")).thenReturn(Optional.of(Teacher.builder().teacherId("GV01").role("ADMIN").build()));
         assertThrows(IllegalArgumentException.class, () -> auth.register(request()));
+        verify(teachers, never()).save(any());
+    }
+
+    @Test void cannotClaimAnExistingTeacherEvenWithoutUsername() {
+        when(teachers.findById("GV01")).thenReturn(Optional.of(Teacher.builder().teacherId("GV01")
+                .semesterStartDate(LocalDate.of(2026, 8, 10)).build()));
+        assertThrows(IllegalArgumentException.class, () -> auth.register(request()));
+        verify(teachers, never()).save(any());
+    }
+
+    @Test void rejectsInvalidSemesterAndShortPassword() {
+        var request = request(); request.setSemesterStartDate(LocalDate.of(2026, 8, 11));
+        assertThrows(IllegalArgumentException.class, () -> auth.register(request));
+        request.setSemesterStartDate(null); request.setPassword("short");
+        assertThrows(IllegalArgumentException.class, () -> auth.register(request));
         verify(teachers, never()).save(any());
     }
 
@@ -59,4 +75,5 @@ class AuthServiceTest {
         var request = new AuthRequest(); request.setUsername("teacher"); request.setPassword("test-password");
         request.setTeacherId("gv01"); request.setFullName("Teacher"); return request;
     }
+
 }

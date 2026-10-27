@@ -8,7 +8,7 @@ Mở Docker Desktop rồi chạy `docker compose up -d --build` tại thư mục
 
 ## Chạy frontend React
 
-Phân quyền TEACHER/ADMIN, cấp tài khoản quản lý và tải Excel kết quả: [hướng dẫn sử dụng](document/phan-quyen-va-xuat-excel.md).
+Phân quyền TEACHER/ADMIN, cấp quyền quản lý và tải Excel kết quả: [hướng dẫn sử dụng](document/phan-quyen-va-xuat-excel.md). Giảng viên tự đăng ký tài khoản; ADMIN không cấp tài khoản giảng viên.
 
 Yêu cầu Node.js 20.19+ hoặc 22.12+.
 

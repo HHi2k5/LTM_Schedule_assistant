@@ -13,4 +13,5 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
     List<Room> findBySchoolCodeOrderByCapacityAsc(String schoolCode);
     List<Room> findAllByOrderByCapacityAsc();
     Optional<Room> findByRoomCodeIgnoreCase(String roomCode);
+    Optional<Room> findBySchoolCodeAndRoomCodeIgnoreCase(String schoolCode, String roomCode);
 }

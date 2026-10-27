@@ -1,11 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { GraduationCap, LayoutDashboard, CalendarDays, BookOpen, Clock3, Settings, ChevronLeft, ChevronRight, Search, Upload, Download, List, Calendar, Menu, HelpCircle, X, CheckCircle2, AlertTriangle, RefreshCw, Sparkles, LogOut, Trash2 } from 'lucide-react';
 import { api, dayNames, minutes, clock, dateLabel, addDays, currentWeek, layoutLessons, calendarFile } from './schedule';
 import ImportSchedule from './ImportSchedule';
-import AutoSchedulePage from './AutoSchedulePage';
 import AuthPage from './AuthPage';
+import TeacherIdentity from './TeacherIdentity';
+import ChangePasswordForm from './ChangePasswordForm';
+import TopbarClock from './TopbarClock';
+import { clampWeek } from './workflow';
 import { getAccessToken, setAccessToken } from './authSession';
 import { canImport, canSchedule, canVisit, defaultPage } from './permissions';
+
+const AutoSchedulePage = lazy(() => import('./AutoSchedulePage'));
 
 const nav = [
   ['overview', 'Tổng quan', LayoutDashboard],
@@ -23,6 +28,8 @@ function stored(key, fallback) {
 export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [restoreError, setRestoreError] = useState('');
+  const [authRevision, setAuthRevision] = useState(0);
   const [page, setPage] = useState('schedule');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [teacherId, setTeacherId] = useState('');
@@ -54,17 +61,24 @@ export default function App() {
     let active = true;
     const controller = new AbortController();
     function expired() {
+      setRestoreError('');
       setAuthUser(null); setSchedule(null); setSelected(null); setToast(''); setTeacherId(''); setTeacherInput('');
     }
     window.addEventListener('campus-auth-expired', expired);
+    setAuthLoading(true); setRestoreError('');
     try { localStorage.removeItem('campus-auth-user'); } catch { /* Legacy UI state is not authentication. */ }
     if (!getAccessToken()) setAuthLoading(false);
     else api('/auth/me', { signal: controller.signal })
       .then(user => { if (active) acceptUser(user); })
-      .catch(error => { if (error.name !== 'AbortError' && active) { setAccessToken(''); expired(); } })
+      .catch(error => {
+        if (error.name !== 'AbortError' && active) {
+          if (error.status === 401) expired();
+          else setRestoreError(error.message);
+        }
+      })
       .finally(() => { if (active) setAuthLoading(false); });
     return () => { active = false; controller.abort(); window.removeEventListener('campus-auth-expired', expired); };
-  }, []);
+  }, [authRevision]);
 
   useEffect(() => {
     try {
@@ -97,6 +111,7 @@ export default function App() {
 
   // Nếu chưa đăng nhập -> Hiển thị màn hình Đăng nhập / Đăng ký
   if (authLoading) return <Empty text="Đang kiểm tra phiên đăng nhập…"/>;
+  if (!authUser && restoreError) return <div className="auth-recovery"><section className="standalone-panel"><h2>Chưa khôi phục được phiên đăng nhập</h2><p role="alert">{restoreError}</p><p>Phiên của bạn vẫn được giữ. Thử lại khi kết nối hoạt động.</p><div className="template-actions"><button className="button primary" onClick={() => setAuthRevision(value => value + 1)}>Thử khôi phục lại</button><button className="button" onClick={() => { setAccessToken(''); setRestoreError(''); }}>Đăng nhập tài khoản khác</button></div></section></div>;
   if (!authUser) {
     return (
       <AuthPage
@@ -173,13 +188,13 @@ export default function App() {
         <div className="sidebar-user"><span className="avatar"><GraduationCap size={20}/></span><div><strong>{authUser.fullName || teacherId}</strong><small>Mã: {authUser.teacherId} · {authUser.role}</small></div></div>
       </div>
     </aside>
-    <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" aria-label="Mở điều hướng" onClick={() => setMobileOpen(true)}><Menu size={22}/></button><span>{canSchedule(authUser) ? 'Không gian quản lý' : 'Không gian giảng viên'}</span><ChevronRight size={14}/><strong>{titles[page]}</strong></div><span className="today-label">{new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'full' }).format(new Date())}</span></header>
+    <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" aria-label="Mở điều hướng" onClick={() => setMobileOpen(true)}><Menu size={22}/></button><span>{canSchedule(authUser) ? 'Không gian quản lý' : 'Không gian giảng viên'}</span><ChevronRight size={14}/><strong>{titles[page]}</strong></div><TopbarClock/></header>
     <main><div className="page-heading"><div><div className="eyebrow"><span/> {canSchedule(authUser) ? 'QUẢN LÝ ĐÀO TẠO' : 'LỊCH GIẢNG DẠY CỦA BẠN'}</div><h1>{titles[page]}<span className="heading-dot">.</span></h1><p>{canSchedule(authUser) ? 'Phân công, xếp lịch và xuất Excel toàn trường.' : 'Nhập lịch đã được phân công. Theo dõi từng tuần, từng trường.'}</p></div><div style={{ display: 'flex', gap: '8px' }}>{canImport(authUser) && page !== 'import' && <button className="button" onClick={() => navigate('import')}><Upload size={18}/>Nhập lịch cá nhân</button>}{canSchedule(authUser) && page !== 'autoschedule' && <button className="button primary" onClick={() => navigate('autoschedule')}><Sparkles size={18}/>Xếp lịch toàn trường</button>}</div></div>
     {storageError && <div role="alert" className="info-banner">Không lưu được lựa chọn trên trình duyệt. Lịch đã nhập vẫn được lưu ở máy chủ.</div>}
     {page !== 'import' && page !== 'autoschedule' && page !== 'help' && <form className="teacher-picker" onSubmit={useTeacher}><label>Mã giảng viên<input readOnly={!canSchedule(authUser)} value={teacherInput} onChange={event => setTeacherInput(event.target.value)} placeholder="Ví dụ: GV01" required maxLength={50}/></label><button className="button" disabled={loading}><RefreshCw size={15}/>Tải lịch</button><span className="muted-text">{semesterStart ? `Tuần 1 bắt đầu ${dateLabel(semesterStart)}` : 'Nhập mã để xem lịch đã lưu trên máy chủ.'}</span></form>}
     {(page === 'schedule' || page === 'overview') && <>
       <div className="stats-grid"><Stat icon={CalendarDays} color="green" label="Buổi dạy trong tuần" value={schedule ? lessons.length : '—'} note="Từ lịch đã nhập"/><Stat icon={Clock3} color="blue" label="Tổng giờ giảng" value={schedule ? Number(totalHours.toFixed(1)) : '—'} suffix="giờ" note="Theo giờ thực tế của trường"/><Stat icon={GraduationCap} color="purple" label="Trường trong tuần" value={schedule ? schools.length : '—'} note="Lịch tổng hợp nhiều trường"/><Stat icon={AlertTriangle} color="orange" label="Buổi trùng giờ" value={schedule ? conflictCount : '—'} note="Kiểm tra trước khi giảng dạy"/></div>
-      <div className="content-grid"><section className="calendar-panel"><div className="calendar-toolbar"><div><h2>Lịch tuần <span className="badge muted">Tuần {week}</span></h2><p>{schedule ? `${dateLabel(schedule.startDate)} – ${dateLabel(schedule.endDate)}` : 'Chọn giảng viên để tải lịch'}</p></div><div className="calendar-controls"><button className="button compact" disabled={!semesterStart || loading} onClick={() => setWeek(currentWeek(semesterStart))}>Hôm nay</button><div className="arrow-group"><button aria-label="Tuần trước" disabled={week <= 1 || loading} onClick={() => setWeek(value => value - 1)}><ChevronLeft size={18}/></button><button aria-label="Tuần sau" disabled={!teacherId || loading} onClick={() => setWeek(value => value + 1)}><ChevronRight size={18}/></button></div><div className="view-switch"><button aria-label="Lịch tuần" aria-pressed={view === 'week'} className={view === 'week' ? 'selected' : ''} onClick={() => setView('week')}><Calendar size={17}/></button><button aria-label="Danh sách" aria-pressed={view === 'list'} className={view === 'list' ? 'selected' : ''} onClick={() => setView('list')}><List size={18}/></button></div></div></div>
+      <div className="content-grid"><section className="calendar-panel"><div className="calendar-toolbar"><div><h2>Lịch tuần <span className="badge muted">Tuần {week}</span></h2><p>{schedule ? `${dateLabel(schedule.startDate)} – ${dateLabel(schedule.endDate)}` : 'Chọn giảng viên để tải lịch'}</p></div><div className="calendar-controls"><button className="button compact" disabled={!semesterStart || loading} onClick={() => setWeek(clampWeek(currentWeek(semesterStart)))}>Hôm nay</button><div className="arrow-group"><button aria-label="Tuần trước" disabled={week <= 1 || loading} onClick={() => setWeek(value => value - 1)}><ChevronLeft size={18}/></button><button aria-label="Tuần sau" disabled={!teacherId || loading || week >= 100} onClick={() => setWeek(value => clampWeek(value + 1))}><ChevronRight size={18}/></button></div><div className="view-switch"><button aria-label="Lịch tuần" aria-pressed={view === 'week'} className={view === 'week' ? 'selected' : ''} onClick={() => setView('week')}><Calendar size={17}/></button><button aria-label="Danh sách" aria-pressed={view === 'list'} className={view === 'list' ? 'selected' : ''} onClick={() => setView('list')}><List size={18}/></button></div></div></div>
       <div className="filter-bar"><label className="search-field"><Search size={17}/><input aria-label="Tìm môn hoặc phòng" placeholder="Tìm môn, phòng hoặc trường…" value={query} onChange={event => setQuery(event.target.value)}/></label><select aria-label="Lọc theo trường" value={schoolFilter} onChange={event => setSchoolFilter(event.target.value)}><option value="all">Tất cả trường</option>{schools.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}</select><button className="icon-button export-button" type="button" aria-label="Xuất lịch .ics" disabled={!visible.length || loading} onClick={exportCalendar}><Download size={18}/></button></div>
       {loading ? <Empty text="Đang tải lịch từ máy chủ…"/> : error ? <div role="alert" className="load-error"><AlertTriangle size={28}/><p>{error}</p><p className="muted-text">{canSchedule(authUser) ? 'Chọn mã giảng viên đã có lịch hoặc vào Xếp lịch toàn trường.' : 'Nếu chưa có lịch, hãy nhập file Excel của bạn.'}</p><button className="button" onClick={() => setRevision(value => value + 1)}>Thử lại</button></div> : !schedule ? <Empty text={canSchedule(authUser) ? 'Chọn mã giảng viên để xem lịch.' : 'Chọn Nhập lịch để bắt đầu.'}/> : !visible.length ? <Empty text={lessons.length ? 'Không có buổi dạy phù hợp với bộ lọc.' : 'Tuần này chưa có buổi dạy. Chuyển tuần để xem lịch khác.'}/> : view === 'week' ? <WeekCalendar lessons={visible} startDate={schedule.startDate} configs={periodConfigs} onSelect={setSelected}/> : <div className="session-list">{visible.map(lesson => <button key={lesson.id} className="session-row" onClick={() => setSelected(lesson)}><span className="school-color" style={{ background: safeColor(lesson.colorCode) }}/><div><strong>{lesson.courseName}</strong><small>{dateLabel(lesson.date)} · {clock(lesson.startTime)} – {clock(lesson.endTime)} · {lesson.schoolName}</small>{lesson.isConflict && <small className="error-text">{lesson.conflictReason}</small>}</div><span className="row-room">{lesson.room}</span><ChevronRight size={18}/></button>)}</div>}
       <div className="calendar-footer"><span><CheckCircle2 size={14}/>Lịch từ máy chủ</span><span>Giờ thực tế theo từng trường</span></div></section>
@@ -206,29 +221,29 @@ export default function App() {
         {canImport(authUser) && <section className="tip-card"><Upload size={21}/><h3>Đổi hoặc thêm lịch trường</h3><p>Bạn có thể bấm biểu tượng thùng rác cạnh tên trường để xóa lịch cũ hoặc tải file Excel mới đè lên.</p><button onClick={() => navigate('import')}>Nhập lịch <ChevronRight size={16}/></button></section>}
       </aside></div>
     </>}
-    {canImport(authUser) && page === 'import' && <ImportSchedule teacherId={authUser.teacherId} semesterStart={semesterStart} onImported={onImported}/>}
+    {canImport(authUser) && page === 'import' && <ImportSchedule teacherId={authUser.teacherId} teacherName={authUser.fullName} semesterStart={semesterStart} onImported={onImported}/>}
     {canSchedule(authUser) && page === 'autoschedule' && (
-      <AutoSchedulePage
+      <Suspense fallback={<Empty text="Đang mở trang xếp lịch…"/>}><AutoSchedulePage
         semesterStart={semesterStart}
         onScheduled={res => {
           setRevision(v => v + 1);
           setToast(`Đã xếp lịch tự động thành công (${res?.totalClassesScheduled || 0} ca học)!`);
         }}
-        onViewTeacherSchedule={selectedTeacherId => {
+        onViewTeacherSchedule={(selectedTeacherId, firstWeek) => {
           setTeacherId(selectedTeacherId);
           setTeacherInput(selectedTeacherId);
-          setWeek(2); // Tuần 2 có đầy đủ cả Lý thuyết và Thực hành
+          setWeek(clampWeek(firstWeek));
           setSchoolFilter('all');
           setQuery('');
           setRevision(v => v + 1);
           navigate('schedule');
           setToast(`Đang xem thời khóa biểu của giảng viên ${selectedTeacherId}`);
         }}
-      />
+      /></Suspense>
     )}
     {page === 'courses' && <section className="standalone-panel"><h2>Môn dạy trong tuần {week}</h2>{loading ? <Empty text="Đang tải…"/> : error ? <p role="alert" className="error-text">{error}</p> : !lessons.length ? <Empty text="Chưa có môn dạy trong tuần này."/> : <div className="session-list">{lessons.map(lesson => <button className="session-row" key={lesson.id} onClick={() => setSelected(lesson)}><BookOpen size={20}/><div><strong>{lesson.courseName}</strong><small>{lesson.schoolName} · {dateLabel(lesson.date)} · Phòng {lesson.room}</small></div><span>Tiết {lesson.startPeriod}–{lesson.endPeriod}</span></button>)}</div>}</section>}
-    {page === 'settings' && <section className="standalone-panel"><h2>Tài khoản</h2><p>{authUser.fullName} · {authUser.username} · {canSchedule(authUser) ? 'Quản lý' : 'Giảng viên'}</p><p className="muted-text">{canSchedule(authUser) ? 'Xếp lịch toàn trường và tải Excel kết quả.' : 'Nhập, xem và quản lý lịch của bạn.'}</p></section>}
-    {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2>{canImport(authUser) ? <p>Nhập file Excel lịch của bạn. Nhập lại cùng mã trường sẽ thay thế lịch trường đó.</p> : <p>Xếp lịch toàn trường bằng file phân công hoặc bảng nhập nhanh. Sau khi xếp, chọn Tải Excel lịch đã xếp để lưu kết quả có mã và tên giảng viên.</p>}</section>}
+    {page === 'settings' && <section className="standalone-panel account-panel"><h2>Tài khoản</h2><p>{authUser.fullName} · {authUser.username} · {canSchedule(authUser) ? 'Quản lý' : 'Giảng viên'}</p><TeacherIdentity teacherId={authUser.teacherId}/><p className="muted-text">{canSchedule(authUser) ? 'Xếp lịch toàn trường, xem lịch giảng viên và tải Excel kết quả.' : 'Nhập, xem và quản lý lịch của bạn.'}</p><ChangePasswordForm username={authUser.username}/></section>}
+    {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2>{canImport(authUser) ? <><p>Tải mẫu Excel trong Nhập lịch. Điền sheet MonHoc theo 9 cột và sheet TietHoc với giờ thực của trường. Kiểm tra dữ liệu và xác nhận trước khi lưu.</p><p>Nhập lại cùng mã trường sẽ thay thế lịch của bạn tại trường đó. Giữ mốc tuần 1 của lịch đang có để đồng bộ các trường.</p><p>Giảng viên tự đăng ký và nhận mã GV riêng. Gửi đúng mã trên tài khoản cho trường để phân công lịch.</p></> : <><p>Xếp lịch bằng bộ file Excel hoặc ba bảng nhập nhanh. Chọn đúng trường, mốc tuần 1 và danh mục phòng của trường.</p><p>Chỉ kết quả “Đã lưu lịch” mới cập nhật lịch giảng viên. “Bản xem trước — chưa lưu” có thể thiếu lớp và giữ nguyên lịch hiện có; kiểm tra cảnh báo trước khi chạy lại.</p><p>Giảng viên tự đăng ký tài khoản. Dùng đúng mã GV họ cung cấp trong danh sách phân công.</p></>}</section>}
     <footer className="page-footer"><span>Campus · Không gian giảng dạy của bạn</span><span><i/>Hệ thống quản lý & xếp lịch tự động</span></footer></main></div>
     {selected && <LessonModal lesson={selected} onClose={() => setSelected(null)}/>}
     {toast && <div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button aria-label="Đóng thông báo" onClick={() => setToast('')}><X size={16}/></button></div>}

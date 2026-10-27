@@ -53,12 +53,14 @@ test('current nine-column XLSX template reads real rows and rejects invalid day/
   const workbook = templateWorkbook();
   const sheet = workbook.worksheets[0];
   assert.equal(sheet.columnCount, 9);
+  workbook.getWorksheet('TietHoc').addRows([[1, '07:20', '08:10'], [2, '08:20', '09:10']]);
   sheet.addRow(['INT1313', 'Networking', '01', 3, 2, 1, 2, '402', '23-56--']);
   const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer());
   const upload = buildUpload(parsed, metadata, '2026-08-10');
   assert.equal(upload.courses[0].courseCode, 'INT1313');
   assert.equal(upload.courses[0].weekSchedule, '23-56--');
-  assert.equal(upload.school.periods.length, 12);
+  assert.equal(upload.school.periods.length, 2);
+  assert.equal(upload.school.periods[0].start, '07:20');
   assert.equal(firstWeek([{ weekSchedule: '---xx' }, { weekSchedule: '-xx' }]), 2);
   await assert.rejects(parseWorkbook(Buffer.from('not an excel file')));
   for (const [column, value] of [[5, 9], [6, 13], [9, '---------']]) {

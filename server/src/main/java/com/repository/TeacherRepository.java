@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.Optional;
+import java.util.List;
 
 public interface TeacherRepository extends JpaRepository<Teacher, String> {
     
@@ -17,4 +18,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, String> {
     Optional<Teacher> findTeacherWithFullSchedule(@Param("teacherId") String teacherId);
     Optional<Teacher> findByUsername(String username);
     boolean existsByUsername(String username);
+
+    @Query("SELECT DISTINCT t FROM Teacher t LEFT JOIN FETCH t.schools s LEFT JOIN FETCH s.periods LEFT JOIN FETCH s.courses")
+    List<Teacher> findAllWithFullSchedule();
 }

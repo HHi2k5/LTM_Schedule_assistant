@@ -16,8 +16,17 @@ public class TokenService {
     private final Key key;
     private final long lifetimeSeconds;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TokenService(@Value("${app.jwt.secret:}") String secret,
-                        @Value("${app.jwt.lifetime-seconds:28800}") long lifetimeSeconds) {
+                        @Value("${app.jwt.lifetime-seconds:28800}") long lifetimeSeconds,
+                        org.springframework.core.env.Environment environment) {
+        this(secret, lifetimeSeconds);
+        if (secret.isBlank() && environment.acceptsProfiles(org.springframework.core.env.Profiles.of("prod"))) {
+            throw new IllegalArgumentException("Prod requires a configured JWT secret.");
+        }
+    }
+
+    public TokenService(String secret, long lifetimeSeconds) {
         // Without a configured key, local sessions intentionally expire on server restart.
         this.key = secret.isBlank() ? Keys.secretKeyFor(SignatureAlgorithm.HS256)
                 : Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));

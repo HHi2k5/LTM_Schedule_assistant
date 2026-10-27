@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { addDays, isMonday, minutes } from './schedule.js';
+import { addDays, clock, isMonday, minutes } from './schedule.js';
 
 export const scheduleHeaders = ['Mã MH', 'Tên môn học', 'Nhóm tổ', 'Số tín chỉ', 'Thứ', 'Tiết bắt đầu', 'Số tiết', 'Phòng', 'Thời gian học:', 'Mã GV', 'Tên GV'];
 const shortDate = value => `${value.slice(8)}/${value.slice(5, 7)}/${value.slice(2, 4)}`;
@@ -23,7 +23,7 @@ export function scheduledRows(result) {
     if (![slot.teacherId, slot.teacherName, slot.courseCode, slot.baseCourseName, slot.classGroup, slot.room].every(nonempty)
         || !integer(slot.dayOfWeek, 2, 8) || !integer(slot.startPeriod, 1, 30) || !integer(slot.numPeriods, 1, 30)
         || (slot.credits != null && !integer(slot.credits, 1, 30))
-        || !/^[a-zA-Z0-9 -]{1,104}$/.test(slot.weekSchedule || '') || !/[^- ]/.test(slot.weekSchedule)) {
+        || !/^[a-zA-Z0-9 -]{1,100}$/.test(slot.weekSchedule || '') || !/[^- ]/.test(slot.weekSchedule)) {
       throw new Error('Một lớp thiếu hoặc sai dữ liệu giảng viên, môn học, tiết hoặc tuần.');
     }
     for (let p = slot.startPeriod; p < slot.startPeriod + slot.numPeriods; p++) {
@@ -62,7 +62,7 @@ export function scheduledWorkbook(result) {
   const periods = workbook.addWorksheet('TietHoc');
   periods.addRow(['period', 'start', 'end']);
   [...result.periods].sort((a, b) => a.period - b.period)
-    .forEach(period => periods.addRow([period.period, period.start.slice(0, 5), period.end.slice(0, 5)]));
+    .forEach(period => periods.addRow([period.period, clock(period.start), clock(period.end)]));
   periods.columns.forEach(column => { column.width = 16; });
   for (const sheet of [courses, periods]) {
     sheet.getRow(1).font = { bold: true };

@@ -16,14 +16,15 @@ import static org.mockito.Mockito.*;
 class ExcelScheduleServiceTest {
     private final AutoScheduleService automatic = mock(AutoScheduleService.class);
     private final RoomRepository rooms = mock(RoomRepository.class);
-    private final ExcelScheduleService excel = new ExcelScheduleService(mock(ScheduleService.class), automatic, rooms);
+    private final ExcelScheduleService excel = new ExcelScheduleService(mock(ScheduleService.class), automatic, rooms, mock(ScheduleWriteLock.class));
 
     @Test void threeFilePlanRetainsCreditsAndUsesAvailableRooms() throws Exception {
-        Room room = new Room(); room.setRoomCode("101-A2"); room.setCapacity(60);
-        when(rooms.findAllByOrderByCapacityAsc()).thenReturn(List.of(room));
+        Room room = new Room(); room.setRoomCode("101-A2"); room.setCapacity(60); room.setSchoolCode("PTIT");
+        when(rooms.findBySchoolCodeOrderByCapacityAsc("PTIT")).thenReturn(List.of(room));
         var plan = file(new Object[][]{{1, "INT1313", "Networking", 50, "2024", 1, 1, 1, 3, "x", "", "", "", "", "", 3}},
                 new String[]{"STT", "Mã môn", "Tên học phần", "Sĩ số", "Khóa", "Số lớp mở", "Tuần bắt đầu", "Tiết BĐ", "Số tiết",
                         "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Số tín chỉ"});
+        when(automatic.generateScheduleWithRooms(any(), any())).thenReturn(AutoScheduleResponse.builder().saved(true).build());
         excel.autoScheduleFrom3Files(plan, null, null, "PTIT", "School", LocalDate.of(2026, 8, 10));
         var capture = ArgumentCaptor.forClass(SchoolWideScheduleRequest.class);
         verify(automatic).generateScheduleWithRooms(capture.capture(), eq(List.of(room)));
