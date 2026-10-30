@@ -1,0 +1,1354 @@
+{
+  "rooms": [
+    {
+      "lab": 0,
+      "capacity": 150,
+      "roomCode": "101-A2",
+      "roomType": "THEORY_LARGE",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 0,
+      "capacity": 150,
+      "roomCode": "102-A2",
+      "roomType": "THEORY_LARGE",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 0,
+      "capacity": 100,
+      "roomCode": "201-A2",
+      "roomType": "THEORY_MEDIUM",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 0,
+      "capacity": 60,
+      "roomCode": "301-A2",
+      "roomType": "THEORY_STANDARD",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 0,
+      "capacity": 60,
+      "roomCode": "302-A2",
+      "roomType": "THEORY_STANDARD",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 1,
+      "capacity": 30,
+      "roomCode": "601-LAB-A2",
+      "roomType": "LAB_PRACTICE",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 1,
+      "capacity": 30,
+      "roomCode": "602-LAB-A2",
+      "roomType": "LAB_PRACTICE",
+      "schoolCode": "PTIT"
+    },
+    {
+      "lab": 1,
+      "capacity": 30,
+      "roomCode": "603-LAB-A2",
+      "roomType": "LAB_PRACTICE",
+      "schoolCode": "PTIT"
+    }
+  ],
+  "courses": [
+    {
+      "schoolId": 6,
+      "classroom": "505-NT",
+      "dayOfWeek": 6,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 1,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 6,
+      "weekSchedule": "111111111111111",
+      "customEndTime": "13:00:00.000000",
+      "customStartTime": "12:00:00.000000"
+    },
+    {
+      "schoolId": 6,
+      "classroom": "601-NT",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": "09:45:00.000000",
+      "customStartTime": "07:15:00.000000"
+    },
+    {
+      "schoolId": 6,
+      "classroom": "704-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": "15:50:00.000000",
+      "customStartTime": "13:00:00.000000"
+    },
+    {
+      "schoolId": 7,
+      "classroom": "505-NT",
+      "dayOfWeek": 6,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 1,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 6,
+      "weekSchedule": "111111111111111",
+      "customEndTime": "13:00:00.000000",
+      "customStartTime": "12:00:00.000000"
+    },
+    {
+      "schoolId": 7,
+      "classroom": "601-NT",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": "09:45:00.000000",
+      "customStartTime": "07:15:00.000000"
+    },
+    {
+      "schoolId": 7,
+      "classroom": "704-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": "15:50:00.000000",
+      "customStartTime": "13:00:00.000000"
+    },
+    {
+      "schoolId": 11,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 10,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 10,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "301-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "302-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "101-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 11,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 10,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 12,
+      "classroom": "302-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 12,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 12,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--11111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "-1-2------------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "-1-2------------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "603-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 10,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "301-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 8,
+      "classroom": "102-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "603-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "603-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "-1-2------------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 5,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 5,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "-1-2------------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "101-A2",
+      "dayOfWeek": 4,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "602-LAB-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 10,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 13,
+      "classroom": "201-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 9,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "-1-2------------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 9,
+      "classroom": "302-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "1111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 9,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "-1-2------------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 10,
+      "classroom": "301-A2",
+      "dayOfWeek": 3,
+      "courseCode": "ARCHIVED",
+      "courseName": "[LT] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 7,
+      "weekSchedule": "-111111111111111",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 10,
+      "classroom": "601-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 1,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    },
+    {
+      "schoolId": 10,
+      "classroom": "603-LAB-A2",
+      "dayOfWeek": 2,
+      "courseCode": "ARCHIVED",
+      "courseName": "[TH] Archived",
+      "numPeriods": 3,
+      "sourceType": "EXCEL_UPLOAD",
+      "sessionType": null,
+      "startPeriod": 4,
+      "weekSchedule": "--1-2-----------",
+      "customEndTime": null,
+      "customStartTime": null
+    }
+  ],
+  "periods": [
+    {
+      "endTime": "08:55:00.000000",
+      "schoolId": 6,
+      "startTime": "08:05:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 6,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 6,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "14:52:00.000000",
+      "schoolId": 6,
+      "startTime": "13:56:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "08:05:00.000000",
+      "schoolId": 6,
+      "startTime": "07:15:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 6,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 6,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 6,
+      "startTime": "14:52:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 6,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "09:45:00.000000",
+      "schoolId": 6,
+      "startTime": "08:55:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "13:56:00.000000",
+      "schoolId": 6,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 6,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "08:55:00.000000",
+      "schoolId": 7,
+      "startTime": "08:05:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 7,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 7,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "14:52:00.000000",
+      "schoolId": 7,
+      "startTime": "13:56:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "08:05:00.000000",
+      "schoolId": 7,
+      "startTime": "07:15:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 7,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 7,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 7,
+      "startTime": "14:52:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 7,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "09:45:00.000000",
+      "schoolId": 7,
+      "startTime": "08:55:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "13:56:00.000000",
+      "schoolId": 7,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 7,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "07:50:00.000000",
+      "schoolId": 11,
+      "startTime": "07:00:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "14:50:00.000000",
+      "schoolId": 11,
+      "startTime": "14:00:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "08:50:00.000000",
+      "schoolId": 11,
+      "startTime": "08:00:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 11,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 11,
+      "startTime": "15:00:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 11,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 11,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 11,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 11,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "09:50:00.000000",
+      "schoolId": 11,
+      "startTime": "09:00:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "13:50:00.000000",
+      "schoolId": 11,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 11,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 12,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "08:50:00.000000",
+      "schoolId": 12,
+      "startTime": "08:00:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 12,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "13:50:00.000000",
+      "schoolId": 12,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "07:50:00.000000",
+      "schoolId": 12,
+      "startTime": "07:00:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 12,
+      "startTime": "15:00:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 12,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "14:50:00.000000",
+      "schoolId": 12,
+      "startTime": "14:00:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 12,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 12,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 12,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "09:50:00.000000",
+      "schoolId": 12,
+      "startTime": "09:00:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "07:50:00.000000",
+      "schoolId": 8,
+      "startTime": "07:00:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "13:50:00.000000",
+      "schoolId": 8,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 8,
+      "startTime": "15:00:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 8,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 8,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "08:50:00.000000",
+      "schoolId": 8,
+      "startTime": "08:00:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "14:50:00.000000",
+      "schoolId": 8,
+      "startTime": "14:00:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 8,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "09:50:00.000000",
+      "schoolId": 8,
+      "startTime": "09:00:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 8,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 8,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 8,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 13,
+      "startTime": "15:00:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "09:50:00.000000",
+      "schoolId": 13,
+      "startTime": "09:00:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 13,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 13,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "07:50:00.000000",
+      "schoolId": 13,
+      "startTime": "07:00:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "14:50:00.000000",
+      "schoolId": 13,
+      "startTime": "14:00:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 13,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "13:50:00.000000",
+      "schoolId": 13,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 13,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 13,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 13,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "08:50:00.000000",
+      "schoolId": 13,
+      "startTime": "08:00:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "08:50:00.000000",
+      "schoolId": 9,
+      "startTime": "08:00:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 9,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "07:50:00.000000",
+      "schoolId": 9,
+      "startTime": "07:00:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "14:50:00.000000",
+      "schoolId": 9,
+      "startTime": "14:00:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 9,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 9,
+      "startTime": "15:00:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "09:50:00.000000",
+      "schoolId": 9,
+      "startTime": "09:00:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 9,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 9,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 9,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    },
+    {
+      "endTime": "13:50:00.000000",
+      "schoolId": 9,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 9,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "09:50:00.000000",
+      "schoolId": 10,
+      "startTime": "09:00:00.000000",
+      "periodNumber": 3
+    },
+    {
+      "endTime": "15:50:00.000000",
+      "schoolId": 10,
+      "startTime": "15:00:00.000000",
+      "periodNumber": 9
+    },
+    {
+      "endTime": "07:50:00.000000",
+      "schoolId": 10,
+      "startTime": "07:00:00.000000",
+      "periodNumber": 1
+    },
+    {
+      "endTime": "13:00:00.000000",
+      "schoolId": 10,
+      "startTime": "12:00:00.000000",
+      "periodNumber": 6
+    },
+    {
+      "endTime": "17:50:00.000000",
+      "schoolId": 10,
+      "startTime": "17:00:00.000000",
+      "periodNumber": 11
+    },
+    {
+      "endTime": "10:50:00.000000",
+      "schoolId": 10,
+      "startTime": "10:00:00.000000",
+      "periodNumber": 4
+    },
+    {
+      "endTime": "18:50:00.000000",
+      "schoolId": 10,
+      "startTime": "18:00:00.000000",
+      "periodNumber": 12
+    },
+    {
+      "endTime": "08:50:00.000000",
+      "schoolId": 10,
+      "startTime": "08:00:00.000000",
+      "periodNumber": 2
+    },
+    {
+      "endTime": "14:50:00.000000",
+      "schoolId": 10,
+      "startTime": "14:00:00.000000",
+      "periodNumber": 8
+    },
+    {
+      "endTime": "13:50:00.000000",
+      "schoolId": 10,
+      "startTime": "13:00:00.000000",
+      "periodNumber": 7
+    },
+    {
+      "endTime": "11:50:00.000000",
+      "schoolId": 10,
+      "startTime": "11:00:00.000000",
+      "periodNumber": 5
+    },
+    {
+      "endTime": "16:50:00.000000",
+      "schoolId": 10,
+      "startTime": "16:00:00.000000",
+      "periodNumber": 10
+    }
+  ],
+  "schools": [
+    {
+      "id": 6,
+      "teacherId": "ARCHIVED_TEACHER_4",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 7,
+      "teacherId": "ARCHIVED_TEACHER_2",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 8,
+      "teacherId": "GV01",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 9,
+      "teacherId": "GV02",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 10,
+      "teacherId": "ARCHIVED_TEACHER_7",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 11,
+      "teacherId": "ARCHIVED_TEACHER_6",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 12,
+      "teacherId": "ARCHIVED_TEACHER_5",
+      "schoolCode": "PTIT"
+    },
+    {
+      "id": 13,
+      "teacherId": "ARCHIVED_TEACHER_8",
+      "schoolCode": "PTIT"
+    }
+  ],
+  "teachers": [
+    {
+      "teacherId": "ARCHIVED_TEACHER_1",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_2",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_3",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_4",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_5",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_6",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "GV01",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "GV02",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_7",
+      "semesterStartDate": "2026-08-10"
+    },
+    {
+      "teacherId": "ARCHIVED_TEACHER_8",
+      "semesterStartDate": "2026-08-10"
+    }
+  ]
+}

@@ -82,8 +82,8 @@ test('password byte limit and upload boundaries reject invalid input', () => {
 });
 
 test('manual tables report incomplete rows rather than dropping them or defaulting numbers', () => {
-  const plans = [{ courseCode: 'NET', courseName: 'Networking', cohort: '2024', classSize: 50, numClasses: 1, startWeek: 1, dayOfWeek: 2, startPeriod: 1, numPeriods: 3 }];
-  const teachers = [{ courseCode: 'NET', courseName: 'Networking', cohort: '2024', teacherId: 'GV01', teacherName: 'Teacher' }];
+  const plans = [{ courseCode: 'NET', courseName: 'Networking', cohort: '2024', classSize: 50, numClasses: 1, credits: 3, theoryPeriods: 30, practicePeriods: 30, studyStartDate: '2026-08-10', studyEndDate: '2026-11-29' }];
+  const teachers = [{ courseCode: 'NET', courseName: 'Networking', cohort: '2024', teacherId: 'GV01', teacherName: 'Teacher', theoryWeight: 2, practiceWeight: 8 }];
   const rooms = [{ roomCode: '101', roomType: 'THEORY', capacity: 60 }];
   validateManual(plans, teachers, rooms);
   assert.throws(() => validateManual([...plans, { ...plans[0], courseName: '' }], teachers, rooms), /dòng 2/);

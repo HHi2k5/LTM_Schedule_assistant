@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { validateScheduleRows, buildUpload } from './scheduleImport.js';
+import { isMonday } from './schedule.js';
 export { buildUpload } from './scheduleImport.js';
 
 const courseKeys = ['courseCode', 'courseName', 'room', 'dayOfWeek', 'startPeriod', 'numPeriods', 'weekSchedule'];
@@ -23,18 +24,21 @@ function parseExcelTime(raw) {
   if (raw instanceof Date) {
     const h = String(raw.getUTCHours()).padStart(2, '0');
     const m = String(raw.getUTCMinutes()).padStart(2, '0');
-    return `${h}:${m}`;
+    const s = String(raw.getUTCSeconds()).padStart(2, '0');
+    return `${h}:${m}${s === '00' ? '' : `:${s}`}`;
   }
   if (typeof raw === 'number' && raw >= 0 && raw < 1) {
-    const totalMinutes = Math.round(raw * 1440);
-    const h = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
-    const m = String(totalMinutes % 60).padStart(2, '0');
-    return `${h}:${m}`;
+    const totalSeconds = Math.round(raw * 86400) % 86400;
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor(totalSeconds / 60) % 60).padStart(2, '0');
+    const s = String(totalSeconds % 60).padStart(2, '0');
+    return `${h}:${m}${s === '00' ? '' : `:${s}`}`;
   }
   const str = String(raw).trim().toLowerCase().replace('h', ':');
   const match = str.match(/^(\d{1,2}):(\d{2})/);
   if (match) {
-    return `${ match[1].padStart(2, '0') }:${ match[2] }`;
+    const seconds = str.match(/^\d{1,2}:\d{2}:(\d{2})$/)?.[1];
+    return `${match[1].padStart(2, '0')}:${match[2]}${seconds && seconds !== '00' ? `:${seconds}` : ''}`;
   }
   return '';
 }
@@ -50,55 +54,45 @@ function fromMinutes(total) {
   return `${h}:${m}`;
 }
 
-// Khung 12h đến 13h được gán là Tiết 6
-const DEFAULT_PERIODS = [
-  { period: 1, start: '07:00', end: '07:50' },
-  { period: 2, start: '08:00', end: '08:50' },
-  { period: 3, start: '09:00', end: '09:50' },
-  { period: 4, start: '10:00', end: '10:50' },
-  { period: 5, start: '11:00', end: '11:50' },
-  { period: 6, start: '12:00', end: '13:00' }, // Tiết 6: 12h00 - 13h00
-  { period: 7, start: '13:00', end: '13:50' },
-  { period: 8, start: '14:00', end: '14:50' },
-  { period: 9, start: '15:00', end: '15:50' },
-  { period: 10, start: '16:00', end: '16:50' },
-  { period: 11, start: '17:00', end: '17:50' },
-  { period: 12, start: '18:00', end: '18:50' }
-];
-
-function convertDateRangeToWeeks(rawText) {
+function convertDateRangeToWeeks(rawText, semesterStartDate, dayOfWeek) {
   const str = String(rawText ?? '').trim();
-  if (!str) return '1111111111111111';
-  if (/^[a-zA-Z0-9 -]{1,104}$/.test(str) && !str.includes('/')) {
+  if (!str) return '';
+  if (/^[a-zA-Z0-9 -]{1,100}$/.test(str) && !str.includes('/')) {
     return str;
   }
 
   const matches = [...str.matchAll(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/g)];
-  if (matches.length >= 2) {
+  if (matches.length === 2) {
     const parseD = m => {
       const d = Number(m[1]), mo = Number(m[2]) - 1;
       let y = Number(m[3]);
       if (y < 100) y += 2000;
-      return new Date(Date.UTC(y, mo, d));
+      const date = new Date(Date.UTC(y, mo, d));
+      return date.getUTCFullYear() === y && date.getUTCMonth() === mo && date.getUTCDate() === d ? date : new Date(NaN);
     };
     const startDate = parseD(matches[0]);
     const endDate = parseD(matches[1]);
-    const semesterStart = new Date(Date.UTC(2026, 7, 10));
+    if (!isMonday(semesterStartDate)) throw new Error('Mốc tuần 1 phải là ngày Thứ Hai hợp lệ.');
+    const semesterStart = new Date(`${semesterStartDate}T00:00:00Z`);
+    const dayMs = 86400000;
 
-    const maxWeeks = 16;
-    const startWeek = Math.floor((startDate - semesterStart) / (7 * 86400000)) + 1;
-    const endWeek = Math.floor((endDate - semesterStart) / (7 * 86400000)) + 1;
+    if (Number.isNaN(startDate.valueOf()) || Number.isNaN(endDate.valueOf()) || endDate < startDate
+        || startDate < semesterStart || endDate >= new Date(semesterStart.valueOf() + 700 * dayMs)) {
+      throw new Error('Khoảng ngày học không hợp lệ hoặc nằm ngoài 100 tuần của học kỳ.');
+    }
 
     let weeks = '';
-    for (let w = 1; w <= maxWeeks; w++) {
-      weeks += (w >= Math.max(1, startWeek) && w <= Math.min(maxWeeks, endWeek)) ? '1' : '-';
+    for (let w = 0; w < 100; w++) {
+      const date = new Date(semesterStart.valueOf() + (w * 7 + dayOfWeek - 2) * dayMs);
+      weeks += date >= startDate && date <= endDate ? '1' : '-';
     }
-    return weeks;
+    if (!weeks.includes('1')) throw new Error('Khoảng ngày học không có buổi học đúng thứ đã khai báo.');
+    return weeks.replace(/-+$/, '');
   }
-  return '1111111111111111';
+  throw new Error('Thời gian học phải là chuỗi tuần hoặc khoảng ngày dd/MM/yyyy đến dd/MM/yyyy.');
 }
 
-export async function parseWorkbook(buffer) {
+export async function parseWorkbook(buffer, semesterStartDate = '2026-08-10') {
   const workbook = new ExcelJS.Workbook();
   try {
     await workbook.xlsx.load(buffer);
@@ -108,6 +102,8 @@ export async function parseWorkbook(buffer) {
 
   const sheet = workbook.getWorksheet('MonHoc') || workbook.worksheets[0];
   if (!sheet) throw new Error('File Excel không có dữ liệu sheet.');
+  const tietHocSheet = workbook.getWorksheet('TietHoc');
+  if (!tietHocSheet) throw new Error('File Excel bắt buộc có sheet TietHoc chứa giờ thực tế.');
 
   const firstHeader = normalize(cellValue(sheet.getRow(1).getCell(1)));
   const thirdHeader = normalize(cellValue(sheet.getRow(1).getCell(3)));
@@ -115,14 +111,13 @@ export async function parseWorkbook(buffer) {
 
   if (!isNineOrElevenColumnFormat && workbook.getWorksheet('MonHoc')) {
     const monHocSheet = workbook.getWorksheet('MonHoc');
-    const tietHocSheet = workbook.getWorksheet('TietHoc');
     const courseRows = readSheetByHeaders(monHocSheet, courseKeys);
-    const periodRows = tietHocSheet ? readSheetByHeaders(tietHocSheet, periodKeys) : DEFAULT_PERIODS.map((p, idx) => ({ ...p, row: idx + 1 }));
+    const periodRows = readSheetByHeaders(tietHocSheet, periodKeys);
     return validateScheduleRows(periodRows, courseRows);
   }
 
-  // Khởi tạo bảng giờ từ DEFAULT_PERIODS (Tiết 6 = 12:00-13:00)
-  const periodMap = new Map(DEFAULT_PERIODS.map(p => [p.period, { ...p }]));
+  const periodRows = readSheetByHeaders(tietHocSheet, periodKeys);
+  const periodMap = new Map(periodRows.map(p => [Number(p.period), { ...p, period: Number(p.period) }]));
 
   let lastCode = '';
   let lastName = '';
@@ -149,13 +144,18 @@ export async function parseWorkbook(buffer) {
 
     if (curCode != null && String(curCode).trim() !== '') lastCode = String(curCode).trim();
     if (curName != null && String(curName).trim() !== '') lastName = String(curName).trim();
-    if (curGroup != null && String(curGroup).trim() !== '') lastGroup = String(curGroup).trim().padStart(2, '0');
+    if (curGroup != null && String(curGroup).trim() !== '') {
+      const group = String(curGroup).trim();
+      lastGroup = /^\d+$/.test(group) ? group.padStart(2, '0') : group;
+    }
 
     let dayOfWeek = parseInt(dayVal, 10);
     if (isNaN(dayOfWeek)) dayOfWeek = String(dayVal).toLowerCase().includes('cn') ? 8 : 2;
 
     const startPeriod = parseInt(startVal, 10) || 1;
-    const numPeriods = parseInt(cellValue(row.getCell(7)), 10) || 1;
+    const rawNumPeriods = cellValue(row.getCell(7));
+    if (!/^\d+$/.test(String(rawNumPeriods ?? '').trim())) throw new Error(`Dòng ${index}: số tiết phải là số nguyên dương.`);
+    const numPeriods = parseInt(rawNumPeriods, 10);
 
     // Nếu người dùng nhập Giờ bắt đầu & Giờ kết thúc trên dòng môn học -> Cập nhật giờ của các tiết tương ứng
     if (customStart && customEnd && toMinutes(customEnd) > toMinutes(customStart)) {
@@ -171,9 +171,9 @@ export async function parseWorkbook(buffer) {
     }
 
     const rawTime = cellValue(row.getCell(9)); // Cột I: Thời gian học
-    const weekSchedule = convertDateRangeToWeeks(rawTime);
+    const weekSchedule = convertDateRangeToWeeks(rawTime, semesterStartDate, dayOfWeek);
 
-    courses.push({
+    const course = {
       courseCode: lastCode || 'MH01',
       courseName: lastGroup ? `${lastName} (Nhóm ${lastGroup})` : lastName,
       room: String(cellValue(row.getCell(8)) || 'Phòng học').trim(),
@@ -181,40 +181,18 @@ export async function parseWorkbook(buffer) {
       startPeriod: startPeriod,
       numPeriods: numPeriods,
       weekSchedule: weekSchedule,
-      customStartTime: customStart || undefined,
-      customEndTime: customEnd || undefined,
       row: index
-    });
+    };
+    if (customStart) course.customStartTime = customStart;
+    if (customEnd) course.customEndTime = customEnd;
+    courses.push(course);
   });
 
   if (!courses.length) {
     throw new Error('Không đọc được dòng môn học nào. Hãy kiểm tra lại các cột Thứ (Cột E) và Tiết bắt đầu (Cột F) trong file Excel.');
   }
 
-  // Chuẩn hóa lại các tiết trong periodMap để không bị chồng lấn giờ
-  const sortedPeriods = [];
-  let cursorMin = 420; // 07:00
-  const maxPeriod = Math.max(12, ...periodMap.keys());
-  for (let p = 1; p <= maxPeriod; p++) {
-    const item = periodMap.get(p);
-    if (item && toMinutes(item.start) >= cursorMin) {
-      sortedPeriods.push({ period: p, start: item.start, end: item.end, row: p });
-      cursorMin = toMinutes(item.end);
-    } else if (item) {
-      const dur = Math.max(15, toMinutes(item.end) - toMinutes(item.start));
-      const s = fromMinutes(cursorMin);
-      const e = fromMinutes(cursorMin + dur);
-      sortedPeriods.push({ period: p, start: s, end: e, row: p });
-      cursorMin += dur;
-    } else {
-      const s = fromMinutes(cursorMin);
-      const e = fromMinutes(cursorMin + 45);
-      sortedPeriods.push({ period: p, start: s, end: e, row: p });
-      cursorMin += 45;
-    }
-  }
-
-  return validateScheduleRows(sortedPeriods, courses);
+  return validateScheduleRows([...periodMap.values()].sort((a, b) => a.period - b.period), courses);
 }
 
 function readSheetByHeaders(sheet, keys) {
@@ -245,17 +223,13 @@ export function templateWorkbook() {
   sheet.addRow([
     'Mã MH', 'Tên môn học', 'Nhóm tổ', 'Số tín chỉ',
     'Thứ', 'Tiết bắt đầu', 'Số tiết', 'Phòng',
-    'Thời gian học:', 'Giờ bắt đầu', 'Giờ kết thúc'
+    'Thời gian học:'
   ]);
-  sheet.addRow(['INT1342M', 'Phân tích và thiết kế hệ thống thông tin', 7, 3, 6, 6, 1, '505-NT', '14/08/26 đến 20/11/26', '12:00', '13:00']);
-  sheet.addRow(['INT14189', 'Quản lý dự án phần mềm', 2, 3, 2, 1, 3, '601-NT', '10/08/26 đến 23/11/26', '07:15', '09:45']);
-  sheet.addRow(['INT1313', 'Lập trình mạng', 1, 3, 4, 7, 3, '704-A2', '12/08/26 đến 25/11/26', '13:00', '15:50']);
   sheet.getRow(1).font = { bold: true };
   sheet.columns.forEach(col => { col.width = 18; });
 
   const tietSheet = workbook.addWorksheet('TietHoc');
   tietSheet.addRow(['period', 'start', 'end']);
-  DEFAULT_PERIODS.forEach(p => tietSheet.addRow([p.period, p.start, p.end]));
   tietSheet.getRow(1).font = { bold: true };
 
   return workbook;

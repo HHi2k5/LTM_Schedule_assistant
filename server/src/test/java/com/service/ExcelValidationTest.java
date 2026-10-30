@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.AnnotationTransactionAttribute
 import org.springframework.web.multipart.MultipartFile;
 import java.io.*;
 import java.time.*;
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -47,6 +48,15 @@ class ExcelValidationTest {
         assertThrows(IllegalArgumentException.class, () -> excel.importTeacherScheduleFromExcel(personal("1", "1", true),
                 "GV01", "Teacher", "A", "A", null, LocalDate.of(2026, 8, 11)));
     }
+    @Test void isolatedPracticeDatesRemainTwoSeparateLessons() throws Exception {
+        var capture = org.mockito.ArgumentCaptor.forClass(SchoolUploadRequest.class);
+        importFile(workbook(new Object[][]{
+                {"NET", "Networking", "Lớp 01 - Tổ 1", 3, 2, 1, 1, "LAB", "17/08/26 đến 17/08/26", "GV01", "Teacher"},
+                {"NET", "Networking", "Lớp 01 - Tổ 1", 3, 2, 1, 1, "LAB", "31/08/26 đến 31/08/26", "GV01", "Teacher"}
+        }, true));
+        verify(schedules).saveOrUpdateSchoolSchedule(capture.capture());
+        assertEquals(List.of("-1", "---1"), capture.getValue().getCourses().stream().map(TeachingCourseDTO::getWeekSchedule).toList());
+    }
     @Test void outerExcelTransactionRollsBackCheckedExceptions() throws Exception {
         var method = ExcelScheduleService.class.getMethod("autoScheduleFrom3Files", MultipartFile.class, MultipartFile.class,
                 MultipartFile.class, String.class, String.class, LocalDate.class);
@@ -61,7 +71,11 @@ class ExcelValidationTest {
     }
     static MockMultipartFile workbook(Object[][] rows, boolean periods) throws Exception {
         try (var book = new XSSFWorkbook(); var out = new ByteArrayOutputStream()) {
-            var sheet = book.createSheet("MonHoc"); sheet.createRow(0);
+            var sheet = book.createSheet("MonHoc"); var header = sheet.createRow(0);
+            if (rows.length > 0 && rows[0].length > 9) {
+                header.createCell(9).setCellValue("Mã GV");
+                header.createCell(10).setCellValue("Tên GV");
+            }
             for (int i = 0; i < rows.length; i++) {
                 var row = sheet.createRow(i + 1);
                 for (int c = 0; c < rows[i].length; c++) row.createCell(c).setCellValue(rows[i][c].toString());

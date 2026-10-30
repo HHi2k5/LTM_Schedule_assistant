@@ -53,9 +53,9 @@ export function validateScheduleRows(periodRows, courseRows) {
       startPeriod: positiveInteger(data.startPeriod, 'tiết bắt đầu', data.row),
       numPeriods: positiveInteger(data.numPeriods, 'số tiết', data.row), 
       weekSchedule: String(data.weekSchedule ?? ''),
-      customStartTime: data.customStartTime ? String(data.customStartTime).trim() : undefined,
-      customEndTime: data.customEndTime ? String(data.customEndTime).trim() : undefined,
     };
+    if (data.customStartTime) course.customStartTime = String(data.customStartTime).trim();
+    if (data.customEndTime) course.customEndTime = String(data.customEndTime).trim();
     if (!course.courseCode || !course.courseName || !course.room) throw new Error(`Sheet MonHoc, dòng ${data.row}: thiếu mã môn, tên môn hoặc phòng.`);
     if (course.courseCode.length > 50 || course.courseName.length > 255 || course.room.length > 100) throw new Error(`Sheet MonHoc, dòng ${data.row}: mã môn/tên môn/phòng vượt giới hạn 50/255/100 ký tự.`);
     if (course.dayOfWeek < 2 || course.dayOfWeek > 8) throw new Error(`Sheet MonHoc, dòng ${data.row}: thứ phải từ 2 đến 8 (8 là Chủ Nhật).`);

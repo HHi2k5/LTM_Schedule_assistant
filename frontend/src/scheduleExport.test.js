@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import { scheduledRows, scheduledWorkbook, scheduleHeaders } from './scheduleExport.js';
+import { parseWorkbook } from './excel.js';
 
 const periods = [1, 2, 3, 4, 5].map(p => ({ period: p, start: `${String(p + 6).padStart(2, '0')}:00:00`, end: `${String(p + 6).padStart(2, '0')}:50:00` }));
 const slot = { teacherId: 'GV01', teacherName: 'Đào Ngọc Phong', courseCode: 'INT1313', baseCourseName: 'Lập trình mạng',
@@ -46,6 +47,28 @@ test('exported date ranges expand to exactly the active source weeks', () => {
   });
   const expected = [...weeks].flatMap((marker, i) => marker === '-' || marker === ' ' ? [] : [Date.UTC(2026, 7, 10) + i * 604800000]);
   assert.deepEqual(dates, expected);
+});
+
+test('two alternating practice lessons per class survive XLSX export and import with the selected semester anchor', async () => {
+  const practice = { ...slot, classGroup: 'Lớp 01 - Tổ 1', sessionType: 'PRACTICE', weekSchedule: '-1-2------------' };
+  const { workbook } = scheduledWorkbook({ ...result, semesterStartDate: '2027-01-04', scheduledClasses: [practice,
+    { ...practice, classGroup: 'Lớp 02 - Tổ 1', weekSchedule: '--1-2-----------' }] });
+  assert.equal(workbook.getWorksheet('MonHoc').rowCount, 5);
+  const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer(), '2027-01-04');
+  assert.equal(parsed.courses.length, 4);
+  const activeWeeks = course => [...course.weekSchedule].flatMap((marker, i) => marker === '-' || marker === ' ' ? [] : [i + 1]);
+  assert.deepEqual(parsed.courses.map(activeWeeks), [[2], [4], [3], [5]]);
+  for (const course of parsed.courses) {
+    assert.equal(activeWeeks(course).length, 1);
+    assert.equal(course.dayOfWeek, practice.dayOfWeek);
+    assert.equal(course.room, practice.room);
+  }
+});
+
+test('a single practice day within a short date range uses its actual weekday', async () => {
+  const { workbook } = scheduledWorkbook({ ...result, scheduledClasses: [{ ...slot, dayOfWeek: 8, weekSchedule: '-1-2' }] });
+  const parsed = await parseWorkbook(await workbook.xlsx.writeBuffer(), result.semesterStartDate);
+  assert.deepEqual(parsed.courses.map(course => course.weekSchedule), ['-1', '---1']);
 });
 
 test('missing credits stay blank and original names remain literal text', async () => {

@@ -7,6 +7,7 @@
 - Giảng viên (`TEACHER`): nhập Excel và quản lý lịch của chính mã GV đã đăng nhập. Không có trang/nút xếp lịch toàn trường.
 - Quản lý (`ADMIN`): xếp lịch bằng Excel phân công hoặc bảng nhập nhanh, xem lịch theo mã GV, tải kết quả Excel. Không có trang/nút nhập lịch cá nhân.
 - Đăng ký trên giao diện luôn tạo TEACHER. Quyền ADMIN được cấp bởi người quản trị database, không chọn trên form đăng ký.
+- Mã GV của tài khoản đăng ký mới gồm 6 ký tự: `GV` + 4 chữ/số viết hoa, ví dụ `GV8K2M`. Server tự thử mã khác khi bị trùng; mã và lịch của tài khoản đã có được giữ nguyên.
 - ADMIN không tạo tài khoản giảng viên trên web hoặc qua API. Giảng viên tự đăng ký và quản lý mật khẩu cá nhân tại Cài đặt. Tài khoản đã tồn tại vẫn đăng nhập như trước.
 - Các phiên đăng nhập cũ lưu bằng localStorage không còn hợp lệ; đăng nhập lại sau cập nhật.
 
@@ -33,7 +34,9 @@ Không có tài khoản hoặc mật khẩu ADMIN được tạo tự động. C
 
 ## Nhập phân công và xuất Excel
 
-Mẫu phân công có năm cột theo thứ tự:
+Luồng ba file trên giao diện dùng mẫu mới: kế hoạch có ngày đầu/cuối, tín chỉ và hai tổng tiết LT/TH theo đề cương; danh sách GV có trọng số LT/TH. Xem [hướng dẫn đầu vào và cấu hình TH](../frontend/README.md#xếp-lịch-và-tải-kết-quả). Luồng này không nhận mẫu kế hoạch có thứ/tiết cố định cũ. Kết quả có thêm thống kê phân công và khối lượng từng lớp/nhóm; chỉ lưu khi xếp đủ.
+
+API một file phân công cũ vẫn hỗ trợ năm cột theo thứ tự:
 
 ```text
 Môn học | Giảng viên (Mã GV - Họ tên) | Số lớp mở | Mã MH (tùy chọn) | Số tín chỉ (tùy chọn)
@@ -45,6 +48,7 @@ Sau khi xếp thành công, chọn **Tải Excel lịch đã xếp** ở vùng k
 
 - Sheet `MonHoc`: `Mã MH`, `Tên môn học`, `Nhóm tổ`, `Số tín chỉ`, `Thứ`, `Tiết bắt đầu`, `Số tiết`, `Phòng`, `Thời gian học:`, `Mã GV`, `Tên GV`.
 - Sheet `TietHoc`: `period`, `start`, `end`, lấy bảng giờ đã dùng khi xếp lịch.
+- Kết quả luồng ba file mới có thêm `PhanCongGiangVien` và `KhoiLuongLopNhom`; tổng tiết của mỗi nhóm TH được kiểm tra riêng. Ngày trong lịch mới có đủ năm bốn chữ số.
 - Mỗi giai đoạn đảo tiết là bản ghi riêng; nếu có tuần nghỉ ở giữa thì tách khoảng ngày để không xuất thêm buổi học.
 
 Excel chỉ gồm lớp đã xếp được. Cảnh báo thiếu tín chỉ hoặc lớp chưa xếp hiển thị ở kết quả. Nút tải dùng mốc tuần và bảng tiết từ lần xếp đó, không lấy các giá trị vừa sửa trên form.

@@ -145,9 +145,6 @@ export default function ImportSchedule({ teacherId, teacherName, semesterStart, 
           <h2>Nhập lịch dạy từ file Excel</h2>
           <p className="muted-text">Dùng bảng môn học 9 cột và sheet TietHoc chứa giờ thực tế của trường.</p>
         </div>
-        <div className="template-actions">
-          <button type="button" className="button" disabled={busy || reading} onClick={downloadTemplate}><Download size={16}/>Tải mẫu Excel</button>
-        </div>
       </div>
       <div className="import-steps"><span>1. Chọn file Excel & điền thông tin</span><span>2. Kiểm tra dữ liệu đọc</span><span>3. Xác nhận lưu lịch</span></div>
       <form onSubmit={inspect}>
@@ -158,7 +155,12 @@ export default function ImportSchedule({ teacherId, teacherName, semesterStart, 
           <label>Tên trường<input name="schoolName" value={metadata.schoolName} onChange={change} maxLength={150} required placeholder="Học viện Công nghệ Bưu chính Viễn thông"/></label>
           <label>Ngày Thứ Hai của tuần 1<input name="semesterStartDate" type="date" min="2000-01-01" max="2100-12-31" readOnly={probe.locked} value={metadata.semesterStartDate} onChange={change} required/><small>{probe.locked ? 'Giữ mốc của lịch đã có để các trường cùng tuần tham chiếu.' : 'Chọn ngày bắt đầu kỳ học.'}</small></label>
           <label>Màu hiển thị lịch<input type="color" name="colorCode" value={metadata.colorCode} onChange={change}/></label>
-          <label className="file-field">File lịch dạy (.xlsx)<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={chooseFile} required/><small>Tối đa 10 MB. Bắt buộc có MonHoc (9 cột) và TietHoc (period, start, end).</small></label>
+          <div className="file-field">
+            <label htmlFor="personal-schedule-file">File lịch dạy (.xlsx)</label>
+            <input id="personal-schedule-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={chooseFile} required/>
+            <button type="button" className="button compact file-template-button" disabled={busy || reading} onClick={downloadTemplate}><Download size={16}/>Tải mẫu Excel</button>
+            <small>Tối đa 10 MB. Bắt buộc có MonHoc (9 cột) và TietHoc (period, start, end).</small>
+          </div>
         </fieldset>
         {probe.status === 'loading' && <p role="status" className="info-banner">Đang kiểm tra lịch trên hệ thống…</p>}
         {probe.status === 'found' && <p className="info-banner">Tuần 1 bắt đầu: {dateLabel(probe.start)}.{!probe.locked && ' Nếu đã có lịch ở tuần khác, cần giữ mốc này; máy chủ sẽ kiểm tra khi lưu.'}</p>}

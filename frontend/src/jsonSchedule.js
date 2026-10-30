@@ -48,7 +48,7 @@ export function parseJsonSchedule(source, knownStart) {
   const courseRows = data.courses.map((course, index) => {
     const path = `courses[${index}]`;
     if (!isObject(course)) throw new Error(`JSON: ${path} phải là đối tượng môn học.`);
-    return {
+    const normalized = {
       courseCode: text(course, 'courseCode', path, 50), 
       courseName: text(course, 'courseName', path), 
       room: text(course, 'room', path),
@@ -58,6 +58,7 @@ export function parseJsonSchedule(source, knownStart) {
       weekSchedule: text(course, 'weekSchedule', path, 104, true), 
       row: index + 1,
     };
+    return normalized;
   });
 
   const metadata = {

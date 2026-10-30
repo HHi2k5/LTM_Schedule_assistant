@@ -9,6 +9,16 @@ import lombok.*;
 @NoArgsConstructor @AllArgsConstructor
 @Builder
 public class TeachingCourse {
+    @Column(name = "source_type", length = 20)
+    private String sourceType;
+    @Column(name = "schedule_class_id", length = 255)
+    private String scheduleClassId;
+    @Column(name = "schedule_parent_id", length = 255)
+    private String scheduleParentId;
+    @Column(name = "session_type", length = 20)
+    private String sessionType;
+    @Column(name = "plan_snapshot", columnDefinition = "LONGTEXT")
+    private String planSnapshot;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

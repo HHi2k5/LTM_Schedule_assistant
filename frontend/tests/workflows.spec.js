@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { templateWorkbook } from '../src/excel.js';
 import { addDays } from '../src/schedule.js';
+import ExcelJS from 'exceljs';
 
 const teacherId = 'GV_1234567890ABCDEF1234567890ABCDEF';
 const anchor = '2026-08-10';
@@ -8,7 +9,7 @@ const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const slot = { teacherId: 'GV01', teacherName: 'Nguyễn Văn A', courseCode: 'NET', courseName: 'Mạng máy tính', baseCourseName: 'Mạng máy tính', classGroup: '01', cohort: '2024', credits: 3, sessionType: 'THEORY', studentCount: 50, room: '101', roomCapacity: 60, dayOfWeek: 2, startPeriod: 1, numPeriods: 1, weekSchedule: '---11' };
 
 async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures = 0, lessons = [], schools } = {}) {
-  const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, emptyAuto: false, restoreFailures, roomCount: 1, lessons, schools, weekFailure: false };
+  const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, autoSlots: [slot], emptyAuto: false, restoreFailures, roomCount: 1, lessons, schools, weekFailure: false };
   const user = { role, teacherId: role === 'ADMIN' ? 'ADMIN' : teacherId, username: role.toLowerCase(), fullName: role === 'ADMIN' ? 'Quản lý đào tạo' : 'Nguyễn Văn A', semesterStartDate: anchor };
   if (!anonymous) await page.addInitScript(() => sessionStorage.setItem('campus-access-token', 'test-token'));
   await page.route('https://fonts.googleapis.com/**', route => route.abort());
@@ -30,8 +31,10 @@ async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures
     if (path === '/auto-generate-3files') return respond({
       saved: state.autoSaved, status: state.autoSaved ? 'SUCCESS' : 'NOT_SAVED', message: state.autoSaved ? 'Đã lưu đầy đủ lịch.' : 'Không đủ phòng, lịch hiện có được giữ nguyên.',
       schoolId: 'PTIT', schoolName: 'Học viện PTIT', semesterStartDate: anchor,
-      scheduledClasses: state.emptyAuto ? [] : [slot], totalClassesScheduled: state.emptyAuto ? 0 : 1,
+      scheduledClasses: state.emptyAuto ? [] : state.autoSlots, totalClassesScheduled: state.emptyAuto ? 0 : state.autoSlots.length,
       totalRoomsAvailable: 1, unscheduledWarnings: state.autoSaved ? [] : ['Thiếu phòng LAB cho một tổ thực hành.'],
+      teacherAllocations: state.teacherAllocations,
+      classWorkloads: state.classWorkloads,
       periods: [{ period: 1, start: '07:20', end: '08:10' }],
     });
     if (path === '/upload-excel-teacher') { state.saved = true; return respond({ status: 'SUCCESS' }); }
@@ -306,8 +309,9 @@ test('today dashboard uses the semester anchor just saved by personal import', a
   await page.getByLabel('Mã trường', { exact: true }).fill('PTIT');
   await page.getByLabel('Tên trường', { exact: true }).fill('Học viện PTIT');
   await page.getByLabel('Ngày Thứ Hai của tuần 1', { exact: false }).fill('2026-08-17');
-  const workbook = templateWorkbook();
-  await page.locator('input[type=file]').setInputFiles({ name: 'new-anchor.xlsx', mimeType: mime, buffer: Buffer.from(await workbook.xlsx.writeBuffer()) });
+  await page.locator('input[type=file]').setInputFiles(await workbookFile(workbook => {
+    workbook.getWorksheet('MonHoc').getRow(2).getCell(9).value = '18/08/26 - 31/08/26';
+  }));
   await page.getByRole('button', { name: 'Đọc file và xem trước' }).click();
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Xác nhận lưu và xem lịch' }).click();
@@ -410,19 +414,81 @@ test('unsaved auto result blocks saved schedule navigation and exports a labelle
   await expect.poll(() => state.calls.some(call => call.path === '/week/4' && call.query.includes('GV01'))).toBe(true);
 });
 
+test('practice results show exactly two lesson weeks for alternating classes taught by one teacher', async ({ page }) => {
+  const state = await boot(page, { role: 'ADMIN' });
+  state.autoSaved = true;
+  state.autoSlots = [
+    { ...slot, sessionType: 'PRACTICE', classGroup: 'Lớp 01 - Tổ 1', subGroup: 'Tổ 1', weekSchedule: '-1-2------------',
+      phaseNote: 'Bài 1: tuần 2; Bài 2: tuần 4 (cách tuần)' },
+    { ...slot, sessionType: 'PRACTICE', classGroup: 'Lớp 02 - Tổ 1', subGroup: 'Tổ 1', weekSchedule: '--1-2-----------',
+      phaseNote: 'Bài 1: tuần 3; Bài 2: tuần 5 (cách tuần)' },
+  ];
+  await runManual(page);
+  await page.getByLabel('Loại buổi học').selectOption('PRACTICE');
+  const rows = page.locator('.import-preview tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Tuần 2, 4');
+  await expect(rows.nth(0)).toContainText('Bài 1: tuần 2; Bài 2: tuần 4');
+  await expect(rows.nth(1)).toContainText('Tuần 3, 5');
+  await expect(rows.nth(1)).toContainText('Bài 1: tuần 3; Bài 2: tuần 5');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Xuất lịch đã lưu (.xlsx)' }).click();
+  expect((await download).suggestedFilename()).toBe('lich-da-xep-PTIT-2026-08-10.xlsx');
+  await noOverflow(page);
+});
+
 test('manual validation keeps incomplete rows and an empty result disables export', async ({ page }, testInfo) => {
   const state = await boot(page, { role: 'ADMIN' });
   await page.getByText('Hoặc nhập/chỉnh sửa nhanh', { exact: false }).click();
   await page.getByRole('button', { name: 'Thêm dòng Kế hoạch mở lớp' }).click();
   await page.getByRole('button', { name: 'Xếp lịch từ 3 bảng dữ liệu trên' }).click();
-  await expect(page.getByRole('alert')).toContainText('dòng 3');
+  await expect(page.getByRole('alert')).toContainText('dòng 2');
   expect(state.calls.filter(call => call.path === '/auto-generate-3files')).toHaveLength(0);
-  await page.locator('.manual-fields table').first().getByRole('button', { name: 'Xóa dòng 3' }).click();
+  await page.locator('.manual-fields table').first().getByRole('button', { name: 'Xóa dòng 2' }).click();
   state.emptyAuto = true;
   await page.getByRole('button', { name: 'Xếp lịch từ 3 bảng dữ liệu trên' }).click();
   await expect(page.getByRole('button', { name: 'Xuất bản xem trước (.xlsx)' })).toBeDisabled();
   await expect(page.getByRole('cell', { name: 'Chưa xếp được buổi học nào.', exact: false })).toBeVisible();
   await screenshot(page, testInfo, 'auto-empty');
+});
+
+test('weekly planner submits syllabus hours and teacher weights then filters variable-length lessons by week', async ({ page }) => {
+  const state = await boot(page, { role: 'ADMIN' });
+  state.autoSaved = true;
+  state.autoSlots = [{ ...slot, classId: 'NET:LT', weekSchedule: '1', numPeriods: 2 }, { ...slot, classId: 'NET:LT', weekSchedule: '-1', numPeriods: 3 }];
+  state.teacherAllocations = [{ courseCode: 'NET', cohort: '2024', teacherId: 'GV01', teacherName: slot.teacherName, sessionType: 'THEORY', weight: 2, targetClasses: 1, assignedClasses: 1, scheduledPeriods: 5 }];
+  state.classWorkloads = [{ classId: 'NET:LT', courseCode: 'NET', cohort: '2024', classGroup: 'Lớp 01', sessionType: 'THEORY', teacherId: 'GV01', requiredPeriods: 5, scheduledPeriods: 5, missingPeriods: 0 }];
+  await page.getByText('Hoặc nhập/chỉnh sửa nhanh', { exact: false }).click();
+  await expect(page.getByLabel('Ngày bắt đầu dòng 1', { exact: true })).toHaveValue('2026-08-10');
+  await expect(page.getByLabel('Tổng tiết LT dòng 1', { exact: true })).toHaveValue('30');
+  await expect(page.getByLabel('Trọng số LT dòng 1', { exact: true })).toHaveValue('2');
+  await expect(page.getByLabel('Trọng số TH dòng 1', { exact: true })).toHaveValue('8');
+  await expect(page.getByLabel('Thứ dòng 1', { exact: true })).toHaveCount(0);
+  const sent = page.waitForRequest(r => r.url().includes('/auto-generate-3files'));
+  await page.getByRole('button', { name: 'Xếp lịch từ 3 bảng dữ liệu trên' }).click();
+  const request = await sent;
+  const boundary = request.headers()['content-type'].split('boundary=')[1];
+  const parts = request.postDataBuffer().toString('latin1').split('--' + boundary);
+  const fileBytes = name => {
+    const part = parts.find(value => value.includes('name="' + name + '"'));
+    return Buffer.from(part.slice(part.indexOf('\r\n\r\n') + 4, part.lastIndexOf('\r\n')), 'latin1');
+  };
+  const plan = new ExcelJS.Workbook(); await plan.xlsx.load(fileBytes('planFile'));
+  expect(plan.worksheets[0].getCell('J2').value).toBe(30);
+  expect(plan.worksheets[0].getCell('K2').value).toBe(30);
+  expect(plan.worksheets[0].getCell('G2').value).toBe('10/08/2026');
+  const teachers = new ExcelJS.Workbook(); await teachers.xlsx.load(fileBytes('teacherFile'));
+  expect(teachers.worksheets[0].getCell('F2').value).toBe(2);
+  expect(teachers.worksheets[0].getCell('G2').value).toBe(8);
+  await expect(page.locator('caption').filter({ hasText: 'Phân công theo trọng số' })).toHaveCount(0);
+  await expect(page.locator('caption').filter({ hasText: 'Khối lượng theo đề cương' })).toHaveCount(0);
+  await expect(page.locator('.import-preview [role="alert"]')).toHaveCount(0);
+  await page.getByLabel('Lọc tuần kết quả').fill('1');
+  const rows = page.locator('.import-preview table').last().locator('tbody tr');
+  await expect(rows).toHaveCount(1); await expect(rows.first()).toContainText('(2t)');
+  await page.getByLabel('Lọc tuần kết quả').fill('2');
+  await expect(rows).toHaveCount(1); await expect(rows.first()).toContainText('(3t)');
+  await noOverflow(page);
 });
 
 test('school-scoped room lookup requires a room file when no inventory exists', async ({ page }) => {
@@ -431,6 +497,7 @@ test('school-scoped room lookup requires a room file when no inventory exists', 
   await page.getByLabel('Mã trường cần xếp lịch', { exact: true }).fill('NEW');
   await expect(page.getByText('Trường NEW hiện có 0 phòng.', { exact: false })).toBeVisible();
   await page.locator('input[type=file]').first().setInputFiles(await workbookFile());
+  await page.locator('input[type=file]').nth(1).setInputFiles(await workbookFile());
   await page.getByRole('button', { name: 'Tải 3 File Excel & Chạy xếp lịch tự động' }).click();
   await expect(page.getByRole('alert')).toContainText('Cần file phòng học');
   expect(state.calls.filter(call => call.path === '/auto-generate-3files')).toHaveLength(0);

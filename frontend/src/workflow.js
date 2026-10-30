@@ -34,18 +34,21 @@ function integer(value, min, max, field) {
 function required(value, max, field) {
   if (!String(value ?? '').trim() || String(value).trim().length > max) throw new Error(`${field}: cần 1–${max} ký tự.`);
 }
-export function validateManual(plans, teachers, rooms) {
+export function validateManual(plans, teachers, rooms, semesterStart) {
   if (!plans.length || !teachers.length || !rooms.length) throw new Error('Cả ba bảng cần ít nhất một dòng.');
   plans.forEach((row, index) => {
     const label = `Kế hoạch, dòng ${index + 1}`;
     required(row.courseCode, 50, `${label}, mã môn`); required(row.courseName, 180, `${label}, tên môn`); required(row.cohort, 50, `${label}, khóa`);
-    for (const [key, min, max, field] of [['classSize',1,1000,'sĩ số'],['numClasses',1,500,'số lớp'],['startWeek',1,16,'tuần bắt đầu'],['dayOfWeek',2,7,'thứ'],['startPeriod',1,12,'tiết bắt đầu'],['numPeriods',1,12,'số tiết']]) integer(row[key], min, max, `${label}, ${field}`);
-    if (Number(row.startPeriod) + Number(row.numPeriods) - 1 > 12) throw new Error(`${label}: dải tiết vượt bảng 12 tiết của xếp lịch tự động.`);
-    if (row.credits !== '' && row.credits != null) integer(row.credits, 1, 30, `${label}, tín chỉ`);
+    for (const [key, min, max, field] of [['classSize',1,1000,'sĩ số'],['numClasses',1,500,'số lớp'],['credits',1,30,'tín chỉ'],['theoryPeriods',0,1000,'tổng tiết LT'],['practicePeriods',0,1000,'tổng tiết TH']]) integer(row[key], min, max, `${label}, ${field}`);
+    if (Number(row.theoryPeriods) + Number(row.practicePeriods) === 0) throw new Error(`${label}: cần ít nhất một tiết LT hoặc TH.`);
+    const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+    if (!validDate(row.studyStartDate) || !validDate(row.studyEndDate) || row.studyEndDate < row.studyStartDate) throw new Error(`${label}: ngày bắt đầu/kết thúc không hợp lệ.`);
+    if (semesterStart && (row.studyStartDate < semesterStart || (Date.parse(row.studyEndDate) - Date.parse(semesterStart)) / 86400000 >= 700)) throw new Error(`${label}: khoảng học phải nằm trong 100 tuần tính từ mốc tuần 1.`);
   });
   teachers.forEach((row, index) => {
     const label = `Giảng viên, dòng ${index + 1}`;
     required(row.courseCode,50,`${label}, mã môn`); required(row.courseName,255,`${label}, tên môn`); required(row.teacherId,50,`${label}, mã GV`); required(row.teacherName,100,`${label}, họ tên`); required(row.cohort,50,`${label}, khóa`);
+    integer(row.theoryWeight,0,10000,`${label}, trọng số LT`); integer(row.practiceWeight,0,10000,`${label}, trọng số TH`);
     if (!plans.some(plan => plan.courseCode.trim() === row.courseCode.trim() && plan.cohort.trim() === row.cohort.trim())) throw new Error(`${label}: mã môn và khóa chưa có trong kế hoạch.`);
   });
   plans.forEach((row, index) => {

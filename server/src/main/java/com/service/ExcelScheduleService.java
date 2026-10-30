@@ -53,6 +53,10 @@ public class ExcelScheduleService {
 
             Sheet sheet = workbook.getSheet("MonHoc") != null ? workbook.getSheet("MonHoc") : workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
+            Row header = sheet.getRow(0);
+            boolean exportedTeacherColumns = header != null
+                    && "Mã GV".equalsIgnoreCase(getCellText(header, 9, formatter))
+                    && "Tên GV".equalsIgnoreCase(getCellText(header, 10, formatter));
             
             // Khởi tạo bảng giờ linh hoạt có sẵn Tiết 6 (12:00 - 13:00)
             Map<Integer, PeriodTimeDTO> periodMap = new TreeMap<>();
@@ -81,8 +85,8 @@ public class ExcelScheduleService {
                     String startPeriodStr = getCellText(row, 5, formatter);
                     
                     // Đọc thêm Cột 9 (Giờ bắt đầu) và Cột 10 (Giờ kết thúc)
-                    LocalTime customStart = parseOptionalTimeCell(row.getCell(9), formatter);
-                    LocalTime customEnd = parseOptionalTimeCell(row.getCell(10), formatter);
+                    LocalTime customStart = exportedTeacherColumns ? null : parseOptionalTimeCell(row.getCell(9), formatter);
+                    LocalTime customEnd = exportedTeacherColumns ? null : parseOptionalTimeCell(row.getCell(10), formatter);
 
                     if (!courseCodeCell.isBlank()) lastCourseCode = courseCodeCell;
                     if (!courseNameCell.isBlank()) lastCourseName = courseNameCell;
@@ -133,6 +137,7 @@ public class ExcelScheduleService {
                     throw new IllegalArgumentException("MonHoc dòng " + (i + 1) + ": " + e.getMessage());
                 }
             }
+            if (periodMap.isEmpty()) throw new IllegalArgumentException("Thiếu sheet TietHoc hoặc giờ thực tế để xác định bảng tiết.");
             // Chuẩn hóa lại bảng tiết tránh chồng lấn
             importedPeriods = reconstructNonOverlappingPeriods(periodMap);
         }
@@ -271,8 +276,7 @@ public class ExcelScheduleService {
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
-        Map<String, List<TeacherCandidateDTO>> teacherMap = parseTeacherExcel(teacherFile);
-        List<CourseDemandDTO> courseDemands = parsePlanExcel(planFile, teacherMap);
+        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile, teacherFile);
         if (courseDemands.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
         
         writeLock.acquire();
@@ -287,7 +291,8 @@ public class ExcelScheduleService {
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
                 .semesterStartDate(resolvedStart)
-                .totalWeeks(16)
+                .totalWeeks((int) java.time.temporal.ChronoUnit.DAYS.between(resolvedStart,
+                        courseDemands.stream().map(CourseDemandDTO::getStudyEndDate).max(LocalDate::compareTo).orElseThrow()) / 7 + 1)
                 .buildingSuffix("A2")
                 .targetSchool(targetSchool)
                 .courses(courseDemands)
@@ -361,7 +366,7 @@ public class ExcelScheduleService {
     private List<PeriodTimeDTO> readPeriodsOptional(Workbook workbook, DataFormatter formatter) {
         Sheet sheet = workbook.getSheet("TietHoc");
         if (sheet == null) {
-            return getDefault12PeriodsWithNoonSlot6();
+            return List.of();
         }
         var periods = new ArrayList<PeriodTimeDTO>();
         for (int i = 1; i <= sheet.getLastRowNum(); i++) {
@@ -398,231 +403,6 @@ public class ExcelScheduleService {
     }
 
     // ==============================================================================
-
-    private List<CourseDemandDTO> parsePlanExcel(MultipartFile planFile, Map<String, List<TeacherCandidateDTO>> teacherMap) throws Exception {
-        List<CourseDemandDTO> demands = new ArrayList<>();
-
-        try (InputStream is = planFile.getInputStream();
-             Workbook workbook = new XSSFWorkbook(is)) {
-
-            Sheet sheet = workbook.getSheetAt(0);
-            DataFormatter formatter = new DataFormatter();
-
-            int colCredits = -1, colStt = 0, colCode = 1, colName = 2, colSize = 3;
-            int colCohort = 4, colNumClasses = 5, colStartWeek = 6, colStartPeriod = -1;
-            int colNumPeriods = 7, colDirectDay = -1;
-            Map<Integer, Integer> dayColumnsMap = new HashMap<>();
-
-            int headerRowIdx = -1;
-            for (int r = 0; r <= Math.min(5, sheet.getLastRowNum()); r++) {
-                Row row = sheet.getRow(r);
-                if (row == null) continue;
-                for (int c = 0; c < row.getLastCellNum(); c++) {
-                    String header = getCellText(row, c, formatter).toLowerCase();
-                    if (header.isBlank()) continue;
-
-                    if (header.contains("tín chỉ") || header.equals("credits")) { colCredits = c; headerRowIdx = r; }
-                    else if (header.equals("stt")) { colStt = c; headerRowIdx = r; }
-                    else if (header.contains("mã môn") || header.contains("mã hp")) { colCode = c; headerRowIdx = r; }
-                    else if (header.contains("tên học phần") || header.contains("tên môn")) { colName = c; headerRowIdx = r; }
-                    else if (header.contains("sĩ số")) { colSize = c; }
-                    else if (header.contains("khóa")) { colCohort = c; }
-                    else if (header.contains("số lớp")) { colNumClasses = c; }
-                    else if (header.contains("tuần")) { colStartWeek = c; }
-                    else if (header.contains("tiết bđ") || header.contains("tiết bắt đầu")) { colStartPeriod = c; }
-                    else if (header.contains("số tiết")) { colNumPeriods = c; }
-                    else if (header.matches("thứ\\s*2") || header.equals("t2")) { dayColumnsMap.put(c, 2); }
-                    else if (header.matches("thứ\\s*3") || header.equals("t3")) { dayColumnsMap.put(c, 3); }
-                    else if (header.matches("thứ\\s*4") || header.equals("t4")) { dayColumnsMap.put(c, 4); }
-                    else if (header.matches("thứ\\s*5") || header.equals("t5")) { dayColumnsMap.put(c, 5); }
-                    else if (header.matches("thứ\\s*6") || header.equals("t6")) { dayColumnsMap.put(c, 6); }
-                    else if (header.matches("thứ\\s*7") || header.equals("t7")) { dayColumnsMap.put(c, 7); }
-                    else if (header.contains("chủ nhật") || header.equals("cn")) { dayColumnsMap.put(c, 8); }
-                    else if (header.equals("thứ")) { colDirectDay = c; }
-                }
-            }
-
-            if (dayColumnsMap.isEmpty() && colDirectDay == -1) {
-                int baseDayCol = (colStartPeriod != -1) ? Math.max(colStartPeriod, colNumPeriods) + 1 : 8;
-                for (int d = 2; d <= 7; d++) {
-                    dayColumnsMap.put(baseDayCol + (d - 2), d);
-                }
-            }
-
-            Map<String, Integer> teacherRoundRobinCounter = new HashMap<>();
-            if (headerRowIdx < 0) throw new IllegalArgumentException("Missing plan column headers.");
-            int startScanRow = headerRowIdx + 1;
-            
-            for (int i = startScanRow; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (row == null) continue;
-
-                String sttStr = getCellText(row, colStt, formatter);
-                String courseCode = getCellText(row, colCode, formatter).toUpperCase();
-                String courseName = getCellText(row, colName, formatter);
-                String classSizeStr = getCellText(row, colSize, formatter);
-
-                if (rowIsEmpty(row, formatter)) continue;
-                if (courseCode.isBlank() || courseName.isBlank())
-                    throw new IllegalArgumentException("Plan row " + (i + 1) + ": missing course code/name.");
-
-                String creditsText = colCredits < 0 ? "" : getCellText(row, colCredits, formatter);
-                Integer credits = creditsText.isBlank() ? null : parseIntSafe(creditsText, -1);
-                if (credits != null && (credits < 1 || credits > 30)) {
-                    throw new IllegalArgumentException("Dòng " + (i + 1) + ": số tín chỉ phải từ 1 đến 30.");
-                }
-                int classSize = parseIntSafe(classSizeStr, 50);
-                String cohort = getCellText(row, colCohort, formatter);
-                int numClasses = parseIntSafe(getCellText(row, colNumClasses, formatter), 1);
-                int startWeek = parseIntSafe(getCellText(row, colStartWeek, formatter), 1);
-                int numPeriods = parseIntSafe(getCellText(row, colNumPeriods, formatter), 3);
-
-                Integer fixedStartPeriod = null;
-                if (colStartPeriod != -1) {
-                    String spText = getCellText(row, colStartPeriod, formatter);
-                    if (!spText.isBlank()) fixedStartPeriod = parseIntSafe(spText, 1);
-                }
-
-                Integer fixedDay = null;
-                if (colDirectDay != -1) {
-                    String dText = getCellText(row, colDirectDay, formatter);
-                    if (!dText.isBlank()) fixedDay = parseDayOfWeek(dText);
-                }
-                if (fixedDay == null) {
-                    for (Map.Entry<Integer, Integer> entry : dayColumnsMap.entrySet()) {
-                        String cellMark = getCellText(row, entry.getKey(), formatter);
-                        if (!cellMark.isBlank()) {
-                            fixedDay = entry.getValue();
-                            if (fixedStartPeriod == null && cellMark.matches(".*\\d+.*")) {
-                                String firstNum = cellMark.split("[-,]")[0].trim();
-                                fixedStartPeriod = parseIntSafe(firstNum, 1);
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                String keyWithCohort = courseCode + "_" + cohort;
-                List<TeacherCandidateDTO> candidates = teacherMap.get(keyWithCohort);
-                if (candidates == null || candidates.isEmpty()) {
-                    candidates = teacherMap.get(courseCode);
-                }
-
-                List<TeacherCandidateDTO> assignedForThisRow;
-                if (candidates != null && !candidates.isEmpty()) {
-                    int rrIdx = teacherRoundRobinCounter.getOrDefault(keyWithCohort, 0);
-                    TeacherCandidateDTO picked = candidates.get(rrIdx % candidates.size());
-                    teacherRoundRobinCounter.put(keyWithCohort, rrIdx + 1);
-
-                    assignedForThisRow = List.of(TeacherCandidateDTO.builder()
-                            .teacherId(picked.getTeacherId())
-                            .teacherName(picked.getTeacherName())
-                            .assignedClasses(numClasses)
-                            .build());
-                } else {
-                    int rrIdx = teacherRoundRobinCounter.getOrDefault(keyWithCohort, 0);
-                    teacherRoundRobinCounter.put(keyWithCohort, rrIdx + 1);
-                    int gvGroup = (rrIdx / 3) + 1;
-                    assignedForThisRow = List.of(TeacherCandidateDTO.builder()
-                            .teacherId(String.format("GV_%s_%02d", courseCode, gvGroup))
-                            .teacherName(String.format("GV %s (Nhóm %d)", courseName, gvGroup))
-                            .assignedClasses(numClasses)
-                            .build());
-                }
-
-                demands.add(CourseDemandDTO.builder()
-                        .credits(credits)
-                        .stt(sttStr.isBlank() ? String.valueOf(demands.size() + 1) : sttStr)
-                        .courseCode(courseCode)
-                        .courseName(courseName)
-                        .classSize(classSize)
-                        .cohort(cohort)
-                        .totalClassesToOpen(numClasses)
-                        .startWeek(startWeek)
-                        .fixedDayOfWeek(fixedDay)
-                        .fixedStartPeriod(fixedStartPeriod)
-                        .numPeriodsPerSession(numPeriods)
-                        .hasPractice(true)
-                        .teachers(assignedForThisRow)
-                        .build());
-            }
-        }
-        return demands;
-    }
-
-    private Map<String, List<TeacherCandidateDTO>> parseTeacherExcel(MultipartFile teacherFile) throws Exception {
-        Map<String, List<TeacherCandidateDTO>> map = new HashMap<>();
-        if (teacherFile == null || teacherFile.isEmpty()) return map;
-        validateFile(teacherFile);
-
-        try (InputStream is = teacherFile.getInputStream();
-             Workbook workbook = new XSSFWorkbook(is)) {
-
-            Sheet sheet = workbook.getSheetAt(0);
-            DataFormatter formatter = new DataFormatter();
-
-            int colCourseCode = 0, colCohort = 2, colTeacherId = 3, colTeacherName = 4;
-            Row headerRow = sheet.getRow(0);
-            if (headerRow != null) {
-                for (int c = 0; c < headerRow.getLastCellNum(); c++) {
-                    String h = getCellText(headerRow, c, formatter).toLowerCase();
-                    if (h.contains("mã môn") || h.contains("mã hp")) colCourseCode = c;
-                    else if (h.contains("khóa")) colCohort = c;
-                    else if (h.contains("mã gv") || h.contains("mã giảng viên")) colTeacherId = c;
-                    else if (h.contains("tên gv") || h.contains("họ tên") || h.contains("giảng viên")) colTeacherName = c;
-                }
-            }
-
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (row == null) continue;
-
-                String courseCode = getCellText(row, colCourseCode, formatter).toUpperCase();
-                String cohort = getCellText(row, colCohort, formatter);
-                String teacherId = getCellText(row, colTeacherId, formatter).toUpperCase(Locale.ROOT);
-                String teacherName = getCellText(row, colTeacherName, formatter);
-
-                if (teacherId.isBlank() && teacherName.isBlank()) {
-                    String col1 = getCellText(row, 1, formatter);
-                    String col2 = getCellText(row, 2, formatter);
-                    if (!col1.isBlank()) {
-                        teacherId = extractTeacherId(col1);
-                        teacherName = extractTeacherName(col1);
-                        cohort = col2;
-                    }
-                } else if (teacherId.isBlank()) {
-                    teacherId = extractTeacherId(teacherName);
-                } else if (teacherName.isBlank()) {
-                    teacherName = extractTeacherName(teacherId);
-                }
-
-                if (rowIsEmpty(row, formatter)) continue;
-                if (courseCode.isBlank() || teacherId.isBlank()) throw new IllegalArgumentException("Danh sách GV dòng " + (i + 1) + ": thiếu mã môn/GV.");
-                ScheduleValidation.text(teacherId, 50, "Dòng " + (i + 1) + ": mã GV");
-                ScheduleValidation.text(teacherName, 100, "Dòng " + (i + 1) + ": tên GV");
-
-                TeacherCandidateDTO candidate = TeacherCandidateDTO.builder()
-                        .teacherId(teacherId)
-                        .teacherName(teacherName)
-                        .build();
-
-                if (!cohort.isBlank()) {
-                    String keyCohort = courseCode + "_" + cohort;
-                    map.putIfAbsent(keyCohort, new ArrayList<>());
-                    addUniqueTeacher(map.get(keyCohort), candidate);
-                }
-                map.putIfAbsent(courseCode, new ArrayList<>());
-                addUniqueTeacher(map.get(courseCode), candidate);
-            }
-        }
-        return map;
-    }
-
-    private void addUniqueTeacher(List<TeacherCandidateDTO> list, TeacherCandidateDTO candidate) {
-        if (list.stream().noneMatch(t -> t.getTeacherId().equalsIgnoreCase(candidate.getTeacherId()))) {
-            list.add(candidate);
-        }
-    }
 
     private List<Room> parseAndSaveRoomExcel(MultipartFile roomFile, String schoolCode) throws Exception {
         if (roomFile != null && !roomFile.isEmpty()) {

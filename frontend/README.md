@@ -44,13 +44,24 @@ Lịch tuần, thống kê và cảnh báo trùng giờ lấy từ backend. Cộ
 
 ## Xếp lịch và tải kết quả
 
-Quản lý dùng ba file hoặc ba bảng nhập nhanh: kế hoạch mở lớp, giảng viên và phòng. Mã môn bắt buộc; tín chỉ có thể bỏ trống. Nhập nhanh kiểm tra mọi dòng đang hiển thị. File phòng có thể bỏ qua khi danh mục phòng của đúng trường đã được kiểm tra và có dữ liệu; hệ thống không tự tạo 35 phòng.
+Luồng ba file xếp đủ tổng tiết LT/TH theo đề cương, trong khoảng ngày cụ thể của từng dòng kế hoạch. Số tiết mỗi buổi có thể thay đổi giữa các tuần. LT và TH có thể do hai GV khác nhau phụ trách; các ngày trong tuần dạy LT/TH của cùng GV được tách riêng. Kiểm tra xung đột GV/phòng/lớp-nhóm theo ngày và giờ thực tế, kể cả lịch GV tại trường khác. Mỗi nhóm TH học đủ khối lượng TH của môn, không chia số tiết cho số nhóm.
+
+Quản lý tải mẫu mới từ giao diện, hoặc dùng ba bảng nhập nhanh:
+
+- Kế hoạch: STT, Mã môn, Tên học phần, Sĩ số, Khóa, Số lớp mở, Tuần bắt đầu — từ ngày, Tuần kết thúc — đến ngày, Số tín chỉ, Tổng tiết LT, Tổng tiết TH. Ngày nhận `dd/MM/yyyy`, `yyyy-MM-dd` hoặc ô ngày Excel thực. Tín chỉ và cả hai tổng tiết bắt buộc; ghi 0 cho phần không học. Môn 3 tín có thể khai 45/0, 30/30 hoặc 30/45 theo đề cương; không ép tổng tiết bằng tín chỉ × 15.
+- Kế hoạch chỉ có 11 cột trên. Việc chia buổi, phân bổ tuần và chia nhóm TH do thuật toán xử lý; không đưa các cột cấu hình này vào file Excel hoặc bảng nhập nhanh. Nhóm TH dựa vào sức chứa LAB thực tế: 50 SV có LAB 50 chỗ học chung; LAB lớn nhất 30 chỗ thì chia hai nhóm 25 SV. Không áp giới hạn mặc định 30 SV/nhóm; nếu có quy định giới hạn riêng của học phần thì vẫn phải tuân theo.
+- Giảng viên bắt buộc: Mã môn, Tên học phần, Khóa, Mã GV, Họ tên giảng viên, Trọng số LT, Trọng số TH. Chia số lớp LT giữa các GV theo trọng số LT, chia số nhóm TH theo trọng số TH, làm tròn phần dư lớn nhất cho tổng nhu cầu cùng môn/khóa qua mọi dòng kế hoạch. Trọng số 0 không nhận loại đó; thiếu dữ liệu phải sửa, không tự sinh GV. Môn/khóa khác nhau có thể có bộ trọng số khác nhau.
+- Phòng: giữ mẫu cũ; có thể bỏ file khi danh mục đúng trường đã được kiểm tra và có dữ liệu.
+
+Chạy lại kế hoạch thay các dòng `WEEKLY_AUTO` của toàn trường, dọn lịch tự xếp của GV rút khỏi phân công và giữ các dòng nhập riêng/trường khác. Bản chụp khối lượng, khoảng ngày và các trọng số được lưu trong `plan_snapshot` của dòng lịch. Giới hạn 100 tuần từ mốc tuần 1, 5000 lớp/nhóm và 100000 tiết mỗi lần; thuật toán tìm kiếm có giới hạn riêng từng lớp/nhóm và trả xem trước nếu chưa xếp đủ. Tra cứu xung đột theo tài nguyên/ngày; một lớp chạm giới hạn không làm các nhóm phía sau bị bỏ qua. Mẫu ba file cũ thiếu ngày/tổng tiết/trọng số phải chuyển sang mẫu mới. API một file phân công cũ vẫn giữ hợp đồng riêng.
 
 - **Đã lưu lịch** (`saved=true`, `SUCCESS`): có thể xuất Excel và mở lịch giảng viên tại tuần hoạt động đầu tiên.
 - **Bản xem trước — chưa lưu** (`saved=false`, `NOT_SAVED`): lịch cũ được giữ nguyên, nút xem lịch đã lưu bị khóa. File xuất có tiền tố `xem-truoc-chua-luu-`; cần kiểm tra cảnh báo rồi sửa đầu vào.
 - Không xếp được buổi nào: hiện cảnh báo và khóa xuất Excel.
 
-Excel kết quả có `MonHoc` gồm chín cột lịch và hai cột Mã GV/Tên GV, cùng `TietHoc`. Thiếu tín chỉ thì để trống. Thông tin trường/mốc tuần lấy từ response của lần chạy, kể cả khi đã sửa form sau đó. Endpoint Excel xếp lịch tự động hiện cố định 16 tuần và bảng 12 tiết; nhập lịch cá nhân hỗ trợ bảng giờ thực tới 30 tiết và 100 tuần.
+Excel kết quả có `MonHoc` gồm chín cột lịch và hai cột Mã GV/Tên GV, cùng `TietHoc`; luồng mới có thêm `PhanCongGiangVien` và `KhoiLuongLopNhom`. Các đoạn khác số tiết/phòng/GV được giữ riêng; ngày xuất của luồng mới có đủ bốn chữ số năm. Giao diện chỉ hiển thị lịch kết quả với bộ lọc tuần/ngày; đã bỏ hai bảng phân công theo trọng số và khối lượng theo đề cương. Khi có lỗi hoặc thiếu tiết, hiển thị một cảnh báo ngắn gọn, kèm số lớp/nhóm và tổng tiết còn thiếu nếu có. Thông tin trường/mốc tuần lấy từ response lần chạy. Luồng ba file dùng bảng 12 tiết và suy ra phạm vi tuần từ khoảng ngày; nhập lịch cá nhân hỗ trợ bảng giờ thực tới 30 tiết và 100 tuần.
+
+Schema mới bổ sung loại buổi, định danh lớp/nhóm và bản chụp kế hoạch qua migration `V3__weekly_planner_metadata.sql`. Môi trường dùng Flyway cần bật `DB_MIGRATIONS_ENABLED=true` khi triển khai; môi trường dev dùng Hibernate update sẽ tự thêm cột. Chưa chạy migration lên DB dev chỉ để kiểm thử; các kiểm thử lưu dùng DB H2 riêng.
 
 Lỗi mạng/500 khi khôi phục phiên sẽ giữ token và có nút thử lại. API bảo vệ trả 401 sẽ đưa về đăng nhập; 403 giữ phiên và báo thiếu quyền. Không tự gửi lại thao tác ghi khi chưa biết kết quả lần trước.
 
@@ -63,7 +74,7 @@ npm.cmd run test:browser
 npm.cmd run build
 ```
 
-Hiện có 21 test dữ liệu/API và 26 lượt browser test (13 luồng × desktop 1440px/mobile 390px), gồm đổi mật khẩu cho ADMIN/giảng viên, không còn trang cấp tài khoản, đồng hồ cập nhật qua nửa đêm và cột tiết đầy đủ sau tải lại trang với nhiều trường có giờ tiết khác nhau. Browser test dùng API mock theo contract để không ghi DB dev. Ảnh và trace khi lỗi được sinh trong `test-results/`, báo cáo HTML trong `playwright-report/` (được gitignore). Chạy browser test bằng Chromium; chưa kiểm tra Safari/Firefox.
+Cập nhật xếp lịch theo đề cương: 29 kiểm thử dữ liệu/API và 10 lượt kiểm thử trình duyệt liên quan xếp lịch (desktop 1440px/mobile 390px) đã qua. Backend có 112 kiểm thử qua, 11 ca MySQL/Testcontainers chưa bật; có ca mẫu mặc định trên bản sao lịch Docker đã ẩn danh, ca nhiều lịch không liên quan làm hết giới hạn tìm kiếm trên mã cũ và ca chia nhóm theo LAB thực tế. Kiểm thử trình duyệt dùng API mock theo contract để không ghi DB dev; kiểm thử lưu backend dùng H2 riêng. Ảnh và trace khi lỗi được sinh trong `test-results/`, báo cáo HTML trong `playwright-report/` (được gitignore). Chạy trình duyệt bằng Chromium; chưa kiểm tra Safari/Firefox.
 
 Đã bỏ dependency `@vitejs/plugin-react` không được cấu hình sử dụng và có peer dependency xung đột Vite 6. Trang ADMIN/ExcelJS được tải theo nhu cầu; chunk ExcelJS vẫn lớn. `npm audit` còn báo 2 mục moderate liên quan ExcelJS/uuid; chưa áp dụng đề xuất hạ major ExcelJS vì cần đánh giá tương thích riêng.
 

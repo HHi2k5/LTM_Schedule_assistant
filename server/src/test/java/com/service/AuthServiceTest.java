@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import java.time.LocalDate;
 import java.util.Optional;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -37,7 +38,40 @@ class AuthServiceTest {
         assertEquals("TEACHER", capture.getValue().getRole());
         assertTrue(passwords.matches("test-password", capture.getValue().getPassword()));
         assertEquals(capture.getValue().getTeacherId(), tokens.subject(response.getAccessToken()));
-        assertTrue(capture.getValue().getTeacherId().startsWith("GV_"));
+        assertTrue(capture.getValue().getTeacherId().matches("GV[A-Z0-9]{4}"));
+        assertEquals(6, response.getTeacherId().length());
+        assertEquals(capture.getValue().getTeacherId(), response.getTeacherId());
+    }
+
+    @Test void registrationRetriesAnOccupiedShortCodeBeforeSaving() {
+        var candidates = new ArrayList<String>();
+        when(teachers.findById(matches("GV[A-Z0-9]{4}"))).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            candidates.add(id);
+            return candidates.size() == 1 ? Optional.of(Teacher.builder().teacherId(id).build()) : Optional.empty();
+        });
+        var response = auth.register(request());
+        assertEquals(2, candidates.size());
+        assertEquals(candidates.get(1), response.getTeacherId());
+        verify(teachers).save(argThat(teacher -> teacher.getTeacherId().equals(response.getTeacherId())));
+    }
+
+    @Test void registrationDoesNotOverwriteAccountsWhenAllGeneratedCodesAreOccupied() {
+        when(teachers.findById(matches("GV[A-Z0-9]{4}"))).thenReturn(Optional.of(Teacher.builder().teacherId("GV0000").build()));
+        assertThrows(IllegalArgumentException.class, () -> auth.register(request()));
+        verify(teachers, times(100)).findById(matches("GV[A-Z0-9]{4}"));
+        verify(teachers, never()).save(any());
+    }
+
+    @Test void existingLongTeacherIdsStillLoginWithoutBeingShortened() {
+        String legacyId = "GV_1234567890ABCDEF1234567890ABCDEF";
+        var teacher = Teacher.builder().teacherId(legacyId).username("teacher").role("TEACHER")
+                .password(passwords.encode("test-password")).semesterStartDate(LocalDate.of(2026, 8, 10)).build();
+        when(teachers.findByUsername("teacher")).thenReturn(Optional.of(teacher));
+        var response = auth.login(request());
+        assertEquals(legacyId, response.getTeacherId());
+        assertEquals(legacyId, tokens.subject(response.getAccessToken()));
+        verify(teachers, never()).save(any());
     }
 
     @Test void cannotClaimReservedAdminAccount() {

@@ -11,6 +11,9 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class AutoScheduleResponse {
+    private List<TeacherAllocationDTO> teacherAllocations;
+    private List<ClassWorkloadDTO> classWorkloads;
+    private int totalLessonsScheduled;
     private boolean saved;
     private String schoolId;
     private String schoolName;

@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { addDays, clock, isMonday, minutes } from './schedule.js';
 
 export const scheduleHeaders = ['Mã MH', 'Tên môn học', 'Nhóm tổ', 'Số tín chỉ', 'Thứ', 'Tiết bắt đầu', 'Số tiết', 'Phòng', 'Thời gian học:', 'Mã GV', 'Tên GV'];
-const shortDate = value => `${value.slice(8)}/${value.slice(5, 7)}/${value.slice(2, 4)}`;
+const exportDate = (value, fullYear) => `${value.slice(8)}/${value.slice(5, 7)}/${fullYear ? value.slice(0, 4) : value.slice(2, 4)}`;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 
@@ -38,7 +38,7 @@ export function scheduledRows(result) {
       const end = addDays(result.semesterStartDate, i * 7 + slot.dayOfWeek - 2);
       rows.push({ slot, firstWeek: first, values: [slot.courseCode, slot.baseCourseName, slot.classGroup,
         slot.credits ?? null, slot.dayOfWeek, slot.startPeriod, slot.numPeriods, slot.room,
-        `${shortDate(start)} đến ${shortDate(end)}`, slot.teacherId, slot.teacherName] });
+        `${exportDate(start, Boolean(slot.classId))} đến ${exportDate(end, Boolean(slot.classId))}`, slot.teacherId, slot.teacherName] });
     }
   }
   rows.sort((a, b) => {
@@ -64,7 +64,24 @@ export function scheduledWorkbook(result) {
   [...result.periods].sort((a, b) => a.period - b.period)
     .forEach(period => periods.addRow([period.period, clock(period.start), clock(period.end)]));
   periods.columns.forEach(column => { column.width = 16; });
-  for (const sheet of [courses, periods]) {
+  const sheets = [courses, periods];
+  if (result.teacherAllocations?.length) {
+    const summary = workbook.addWorksheet('PhanCongGiangVien');
+    summary.addRow(['Mã môn', 'Khóa', 'Mã GV', 'Tên GV', 'Loại LT/TH', 'Trọng số', 'Mục tiêu lớp/nhóm', 'Đã giao đủ tiết', 'Tiết đã xếp']);
+    result.teacherAllocations.forEach(a => summary.addRow([a.courseCode, a.cohort, a.teacherId, a.teacherName, a.sessionType,
+      a.weight, a.targetClasses, a.assignedClasses, a.scheduledPeriods]));
+    summary.columns.forEach(column => { column.width = 22; });
+    sheets.push(summary);
+  }
+  if (result.classWorkloads?.length) {
+    const workloads = workbook.addWorksheet('KhoiLuongLopNhom');
+    workloads.addRow(['ID lớp/nhóm', 'Mã môn', 'Khóa', 'Lớp/nhóm', 'Loại LT/TH', 'Mã GV', 'Tổng tiết yêu cầu', 'Tiết đã xếp', 'Tiết còn thiếu']);
+    result.classWorkloads.forEach(w => workloads.addRow([w.classId, w.courseCode, w.cohort, w.classGroup, w.sessionType,
+      w.teacherId || '', w.requiredPeriods, w.scheduledPeriods, w.missingPeriods]));
+    workloads.columns.forEach(column => { column.width = 24; });
+    sheets.push(workloads);
+  }
+  for (const sheet of sheets) {
     sheet.getRow(1).font = { bold: true };
     sheet.views = [{ state: 'frozen', ySplit: 1 }];
     sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: sheet.rowCount, column: sheet.columnCount } };

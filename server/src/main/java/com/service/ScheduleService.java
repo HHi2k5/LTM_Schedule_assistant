@@ -81,6 +81,11 @@ public class ScheduleService {
             for (TeachingCourseDTO dto : request.getCourses()) {
                 school.getCourses().add(TeachingCourse.builder()
                         .courseCode(dto.getCourseCode())
+                        .sourceType(dto.getSourceType() == null ? "EXCEL_UPLOAD" : dto.getSourceType())
+                        .scheduleClassId(dto.getScheduleClassId())
+                        .scheduleParentId(dto.getScheduleParentId())
+                        .sessionType(dto.getSessionType())
+                        .planSnapshot(dto.getPlanSnapshot())
                         .courseName(dto.getCourseName())
                         .classroom(dto.getRoom())
                         .dayOfWeek(dto.getDayOfWeek())
@@ -95,6 +100,42 @@ public class ScheduleService {
         }
 
         schoolRepository.save(school);
+    }
+
+    /** Replace only rows managed by the weekly school-wide planner, including withdrawn teachers. */
+    @Transactional(rollbackFor = Exception.class)
+    public void replaceWeeklyGenerated(SchoolWideScheduleRequest request, Map<String, List<TeachingCourseDTO>> generated,
+                                       Map<String, String> names) {
+        writeLock.acquire();
+        String schoolCode = request.getTargetSchool().getSchoolId();
+        var existing = teacherRepository.findAllWithFullSchedule();
+        var retained = new LinkedHashMap<String, List<TeachingCourseDTO>>();
+        for (var teacher : existing) for (var school : teacher.getSchools()) {
+            if (!schoolCode.equals(school.getSchoolCode())) continue;
+            boolean managed = school.getCourses().stream().anyMatch(c -> "WEEKLY_AUTO".equals(c.getSourceType()));
+            if (!managed && !generated.containsKey(teacher.getTeacherId())) continue;
+            var rows = new ArrayList<TeachingCourseDTO>();
+            for (var c : school.getCourses()) if (!"WEEKLY_AUTO".equals(c.getSourceType())) {
+                rows.add(TeachingCourseDTO.builder().courseCode(c.getCourseCode()).courseName(c.getCourseName())
+                        .room(c.getClassroom()).dayOfWeek(c.getDayOfWeek()).startPeriod(c.getStartPeriod())
+                        .numPeriods(c.getNumPeriods()).weekSchedule(c.getWeekSchedule()).customStartTime(c.getCustomStartTime())
+                        .customEndTime(c.getCustomEndTime()).sourceType(c.getSourceType()).scheduleClassId(c.getScheduleClassId())
+                        .scheduleParentId(c.getScheduleParentId()).sessionType(c.getSessionType()).planSnapshot(c.getPlanSnapshot()).build());
+            }
+            if (!rows.isEmpty() && !request.getTargetSchool().getPeriods().equals(school.getPeriods().stream()
+                    .sorted(Comparator.comparingInt(SchoolPeriod::getPeriodNumber))
+                    .map(p -> new PeriodTimeDTO(p.getPeriodNumber(), p.getStartTime(), p.getEndTime())).toList())) {
+                throw new IllegalArgumentException("Bảng tiết của lịch giữ lại khác cấu hình xếp lịch: " + teacher.getTeacherId());
+            }
+            retained.put(teacher.getTeacherId(), rows);
+            names.putIfAbsent(teacher.getTeacherId(), teacher.getFullName());
+        }
+        generated.forEach((id, rows) -> retained.computeIfAbsent(id, ignored -> new ArrayList<>()).addAll(rows));
+        for (var entry : retained.entrySet()) {
+            if (entry.getValue().isEmpty()) deleteSchoolSchedule(entry.getKey(), schoolCode);
+            else saveOrUpdateSchoolSchedule(SchoolUploadRequest.builder().teacherId(entry.getKey()).teacherName(names.get(entry.getKey()))
+                    .semesterStartDate(request.getSemesterStartDate()).school(request.getTargetSchool()).courses(entry.getValue()).build());
+        }
     }
 
     @Transactional

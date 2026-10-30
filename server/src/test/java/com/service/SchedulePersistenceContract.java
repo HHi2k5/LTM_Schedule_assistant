@@ -1,7 +1,6 @@
 package com.service;
 
 import com.dto.*;
-import com.model.*;
 import com.repository.*;
 import com.security.AccountPrincipal;
 import org.junit.jupiter.api.*;
@@ -92,9 +91,7 @@ abstract class SchedulePersistenceContract {
     }
 
     @Test void checkedExcelReadFailureAfterRoomInsertRollsBackEverything() throws Exception {
-        var plan = excelFile(new Object[][] {
-                {"STT", "Mã môn", "Tên học phần", "Sĩ số", "Khóa", "Số lớp mở", "Tuần bắt đầu", "Tiết BĐ", "Số tiết", "Thứ 2"},
-                {1, "NET", "Networking", 50, "2024", 1, 1, 1, 3, "x"}});
+        var plan = WeeklyPlanExcelReaderTest.plan();
         byte[] bytes = excelFile(new Object[][]{{"Mã phòng", "Loại phòng", "Sức chứa", "Tòa nhà"}, {"101", "THEORY", 60, "A2"}}).getBytes();
         var sawWrite = new java.util.concurrent.atomic.AtomicBoolean();
         var broken = new org.springframework.mock.web.MockMultipartFile("roomFile", "rooms.xlsx", "application/octet-stream", bytes) {
@@ -110,7 +107,7 @@ abstract class SchedulePersistenceContract {
                 };
             }
         };
-        assertThrows(java.io.IOException.class, () -> excel.autoScheduleFrom3Files(plan, null, broken, "A", "A", BackendRegressionTest.MONDAY));
+        assertThrows(java.io.IOException.class, () -> excel.autoScheduleFrom3Files(plan, WeeklyPlanExcelReaderTest.teachers(), broken, "A", "A", BackendRegressionTest.MONDAY));
         assertTrue(sawWrite.get(), "the failure must happen after a real room INSERT");
         assertEquals(0, rooms.count(), "room INSERT must roll back");
         assertEquals(0, teachers.count(), "no account from another test may remain");
@@ -129,6 +126,59 @@ abstract class SchedulePersistenceContract {
             int success = 0; for (var future : futures) if (future.get(20, TimeUnit.SECONDS)) success++;
             assertEquals(1, success); assertEquals(1, teachers.count());
         } finally { pool.shutdownNow(); assertTrue(pool.awaitTermination(15, TimeUnit.SECONDS)); }
+    }
+
+    @Test void newThreeFileWorkflowPersistsEveryGroupsFullHoursAndReloadsActualWeeklyLessons() throws Exception {
+        var roomFile = excelFile(new Object[][]{{"Mã phòng", "Loại phòng", "Sức chứa", "Tòa nhà"},
+                {"101", "THEORY", 60, "A2"}, {"LAB", "PRACTICE", 30, "A2"}});
+        var result = excel.autoScheduleFrom3Files(WeeklyPlanExcelReaderTest.plan(), WeeklyPlanExcelReaderTest.teachers(),
+                roomFile, "A", "School", BackendRegressionTest.MONDAY);
+        assertTrue(result.isSaved(), result.getUnscheduledWarnings().toString());
+        assertEquals(3, result.getTotalClassesScheduled());
+        assertEquals(120, result.getClassWorkloads().stream().mapToInt(ClassWorkloadDTO::getScheduledPeriods).sum());
+        int periods = 0;
+        for (String teacher : List.of("A", "B")) for (int week = 1; week <= 16; week++) {
+            for (var lesson : schedules.getWeeklySchedule(teacher, week).getLessons()) {
+                assertFalse(lesson.isConflict()); periods += lesson.getEndPeriod() - lesson.getStartPeriod() + 1;
+            }
+        }
+        assertEquals(120, periods);
+    }
+
+    @Test void changingLabCapacityReplacesOldSplitGroupsWithOneWholeClass() {
+        var request = WeeklyScheduleEngineTest.request(0, 30);
+        var small = WeeklyScheduleEngineTest.rooms().get(1);
+        assertTrue(automatic.generateScheduleWithRooms(request, List.of(small)).isSaved());
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(DISTINCT schedule_class_id) FROM teaching_courses WHERE source_type='WEEKLY_AUTO'", Integer.class));
+        var large = com.model.Room.builder().roomCode("LAB50").schoolCode("A").isLab(true).capacity(50).roomType("LAB_PRACTICE").build();
+        var result = automatic.generateScheduleWithRooms(request, List.of(large));
+        assertTrue(result.isSaved()); assertEquals(1, result.getClassWorkloads().size());
+        assertTrue(result.getScheduledClasses().stream().allMatch(s -> s.getStudentCount() == 50));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(DISTINCT schedule_class_id) FROM teaching_courses WHERE source_type='WEEKLY_AUTO'", Integer.class));
+        assertEquals(30, jdbc.queryForObject("SELECT SUM(num_periods * (LENGTH(week_schedule) - LENGTH(REPLACE(week_schedule, '1', '')))) FROM teaching_courses WHERE source_type='WEEKLY_AUTO'", Integer.class));
+    }
+
+    @Test void weeklyReplacementClearsWithdrawnAssignmentsAndPreservesPersonalRowsAndOtherSchools() {
+        var personal = BackendRegressionTest.upload(); personal.setTeacherId("A"); personal.getSchool().setSchoolId("A");
+        schedules.saveOrUpdateSchoolSchedule(personal);
+        var other = BackendRegressionTest.upload(); other.setTeacherId("A"); other.getSchool().setSchoolId("OTHER");
+        schedules.saveOrUpdateSchoolSchedule(other);
+        var request = WeeklyScheduleEngineTest.request(30, 0);
+        request.getCourses().getFirst().setTeachers(List.of(WeeklyScheduleEngineTest.teacher("A", 1, 0)));
+        var first = automatic.generateScheduleWithRooms(request, WeeklyScheduleEngineTest.rooms()); assertTrue(first.isSaved());
+        assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM teaching_courses WHERE source_type='WEEKLY_AUTO'", Integer.class) > 0);
+        assertTrue(jdbc.queryForObject("SELECT plan_snapshot FROM teaching_courses WHERE source_type='WEEKLY_AUTO' LIMIT 1", String.class).contains("\"theoryPeriods\":30"));
+        int lessons = 0;
+        for (int week = 1; week <= 16; week++) lessons += schedules.getWeeklySchedule("A", week).getLessons().size();
+        assertEquals(first.getTotalLessonsScheduled() + 2, lessons);
+        request.getCourses().getFirst().setTeachers(List.of(WeeklyScheduleEngineTest.teacher("B", 1, 0)));
+        assertTrue(automatic.generateScheduleWithRooms(request, WeeklyScheduleEngineTest.rooms()).isSaved());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM teaching_courses c JOIN schools s ON c.school_id=s.id WHERE s.teacher_id='A' AND c.source_type='WEEKLY_AUTO'", Integer.class));
+        assertEquals(2, schedules.getWeeklySchedule("A", 1).getLessons().size());
+        assertEquals(30, jdbc.queryForObject("SELECT SUM(c.num_periods * (LENGTH(c.week_schedule) - LENGTH(REPLACE(c.week_schedule, '1', '')))) FROM teaching_courses c WHERE c.source_type='WEEKLY_AUTO'", Integer.class));
+        var impossible = WeeklyScheduleEngineTest.request(30, 30);
+        assertFalse(automatic.generateScheduleWithRooms(impossible, List.of(BackendRegressionTest.room("A"))).isSaved());
+        assertEquals(30, jdbc.queryForObject("SELECT SUM(c.num_periods * (LENGTH(c.week_schedule) - LENGTH(REPLACE(c.week_schedule, '1', '')))) FROM teaching_courses c WHERE c.source_type='WEEKLY_AUTO'", Integer.class));
     }
 
     static org.springframework.mock.web.MockMultipartFile excelFile(Object[][] rows) throws Exception {

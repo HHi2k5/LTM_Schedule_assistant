@@ -11,6 +11,17 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class CourseDemandDTO {
+    private java.time.LocalDate studyStartDate;
+    private java.time.LocalDate studyEndDate;
+    private java.time.LocalDate practiceStartDate;
+    private java.time.LocalDate practiceEndDate;
+    private Integer theoryPeriods;
+    private Integer practicePeriods;
+    @Builder.Default private int maxPeriodsPerSession = 3;
+    @Builder.Default private int maxPeriodsPerWeek = 6;
+    // Optional syllabus limit; null means use the actual LAB capacity.
+    private Integer practiceGroupSize;
+    @Builder.Default private String practiceMode = "FLEXIBLE";
     private Integer credits;
     private String stt;                    // STT dòng trong kế hoạch mở lớp
     private String courseCode;             // VD: "61FIT3DBS"

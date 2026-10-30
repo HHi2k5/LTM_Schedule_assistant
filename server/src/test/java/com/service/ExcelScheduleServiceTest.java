@@ -21,16 +21,16 @@ class ExcelScheduleServiceTest {
     @Test void threeFilePlanRetainsCreditsAndUsesAvailableRooms() throws Exception {
         Room room = new Room(); room.setRoomCode("101-A2"); room.setCapacity(60); room.setSchoolCode("PTIT");
         when(rooms.findBySchoolCodeOrderByCapacityAsc("PTIT")).thenReturn(List.of(room));
-        var plan = file(new Object[][]{{1, "INT1313", "Networking", 50, "2024", 1, 1, 1, 3, "x", "", "", "", "", "", 3}},
-                new String[]{"STT", "Mã môn", "Tên học phần", "Sĩ số", "Khóa", "Số lớp mở", "Tuần bắt đầu", "Tiết BĐ", "Số tiết",
-                        "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Số tín chỉ"});
+        var plan = WeeklyPlanExcelReaderTest.plan();
         when(automatic.generateScheduleWithRooms(any(), any())).thenReturn(AutoScheduleResponse.builder().saved(true).build());
-        excel.autoScheduleFrom3Files(plan, null, null, "PTIT", "School", LocalDate.of(2026, 8, 10));
+        excel.autoScheduleFrom3Files(plan, WeeklyPlanExcelReaderTest.teachers(), null, "PTIT", "School", LocalDate.of(2026, 8, 10));
         var capture = ArgumentCaptor.forClass(SchoolWideScheduleRequest.class);
         verify(automatic).generateScheduleWithRooms(capture.capture(), eq(List.of(room)));
         var course = capture.getValue().getCourses().getFirst();
-        assertEquals("INT1313", course.getCourseCode()); assertEquals(3, course.getCredits());
-        assertEquals(2, course.getFixedDayOfWeek()); assertEquals(1, course.getFixedStartPeriod());
+        assertEquals("NET", course.getCourseCode()); assertEquals(3, course.getCredits());
+        assertNull(course.getFixedDayOfWeek()); assertNull(course.getFixedStartPeriod());
+        assertEquals(30, course.getTheoryPeriods()); assertEquals(45, course.getPracticePeriods());
+        assertEquals(2, course.getTeachers().size());
     }
 
     @Test void acceptsLegacyThreeColumnsAndRetainsOptionalCourseMetadata() throws Exception {
