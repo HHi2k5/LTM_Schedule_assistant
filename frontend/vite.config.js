@@ -7,7 +7,6 @@ export default defineConfig(({ mode }) => {
   base: './',
   server: {
     host: true,
-    allowedHosts: ['viewing-express-blip.ngrok-free.dev', 'passably-morse-acuteness.ngrok-free.dev'],
     proxy: {
       '/api': {
         target: backendTarget,
