@@ -32,6 +32,25 @@ class WeeklyScheduleEngineTest {
         return List.of(BackendRegressionTest.room("A"), Room.builder().roomCode("LAB").schoolCode("A").isLab(true).capacity(30).roomType("LAB_PRACTICE").build());
     }
     AutoScheduleResponse generate(SchoolWideScheduleRequest request) { return automatic.generateScheduleWithRooms(request, rooms()); }
+    @Test void separateTheoryAndPracticeRowsForTheSameCourseScheduleIndependentlyWithoutLosingHours() {
+        var request = request(30, 0); var theory = request.getCourses().getFirst(); theory.setClassSize(50);
+        var practice = request(0, 15).getCourses().getFirst(); practice.setStt("3"); practice.setClassSize(25); practice.setTotalClassesToOpen(2);
+        practice.setPracticeGroupSize(25); practice.setStudyStartDate(theory.getStudyStartDate().plusWeeks(1));
+        request.setCourses(List.of(theory, practice));
+        var result = generate(request);
+        assertTrue(result.isSaved(), result.getUnscheduledWarnings().toString());
+        assertEquals(3, result.getClassWorkloads().size());
+        assertEquals(30, result.getClassWorkloads().stream().filter(w -> "THEORY".equals(w.getSessionType())).mapToInt(ClassWorkloadDTO::getScheduledPeriods).sum());
+        assertEquals(30, result.getClassWorkloads().stream().filter(w -> "PRACTICE".equals(w.getSessionType())).mapToInt(ClassWorkloadDTO::getScheduledPeriods).sum());
+        assertEquals(3, result.getClassWorkloads().stream().map(ClassWorkloadDTO::getClassId).distinct().count());
+        assertTrue(result.getScheduledClasses().stream().filter(s -> "PRACTICE".equals(s.getSessionType())).allMatch(s -> s.getStudentCount() == 25));
+        assertNoConflicts(result);
+    }
+    @Test void sameTypeRowsStillRejectConflictingSyllabusHours() {
+        var request = request(30, 0); var conflicting = request(45, 0).getCourses().getFirst();
+        request.setCourses(List.of(request.getCourses().getFirst(), conflicting));
+        assertThrows(IllegalArgumentException.class, () -> generate(request)); verifyNoInteractions(saves);
+    }
     @Test void inactiveRoomsAreNotUsedByWeeklyOrLegacyScheduling() {
         var inactive = BackendRegressionTest.room("A"); inactive.setActive(false);
         for (var input : List.of(request(30, 0), BackendRegressionTest.request())) {

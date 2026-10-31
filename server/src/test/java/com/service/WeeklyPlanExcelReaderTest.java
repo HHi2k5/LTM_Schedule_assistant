@@ -1,6 +1,5 @@
 package com.service;
 
-import com.dto.*;
 import org.junit.jupiter.api.Test;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.mock.web.MockMultipartFile;
@@ -9,6 +8,43 @@ import java.time.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WeeklyPlanExcelReaderTest {
+    static final Object[] TYPED_HEADERS = {"STT", "Mã môn", "Tên học phần", "Loại lớp (LT / TH)", "Sĩ số", "Khóa", "Số lớp mở",
+            "Tuần bắt đầu — từ ngày", "Tuần kết thúc — đến ngày", "Số tín chỉ", "Số tiết"};
+    static Object[] typedRow(String type) { return new Object[]{1, "NET", "Networking", type, 50, "2024", 1, "10/08/2026", "29/11/2026", 3, 30}; }
+    @Test void separateTheoryAndPracticeRowsKeepTheirOwnSizeClassCountWindowAndWorkload() throws Exception {
+        var lt = typedRow("LT"); var th = typedRow("TH");
+        th[4] = 25; th[6] = 2; th[7] = "17/08/2026"; th[10] = 15;
+        var courses = new WeeklyPlanExcelReader().read(file(new Object[][]{TYPED_HEADERS, lt, th}), teachers());
+        assertEquals(2, courses.size());
+        var theory = courses.get(0); var practice = courses.get(1);
+        assertEquals(30, theory.getTheoryPeriods()); assertEquals(0, theory.getPracticePeriods());
+        assertEquals(0, practice.getTheoryPeriods()); assertEquals(15, practice.getPracticePeriods());
+        assertEquals(25, practice.getClassSize()); assertEquals(2, practice.getTotalClassesToOpen()); assertEquals(25, practice.getPracticeGroupSize());
+        assertEquals(LocalDate.of(2026, 8, 17), practice.getStudyStartDate()); assertEquals(3, practice.getCredits());
+        assertEquals(2, theory.getTeachers().size()); assertEquals(2, practice.getTeachers().size());
+    }
+    @Test void separateRowsRejectAmbiguousTypesMissingHoursAndInvalidCreditsInsteadOfDefaulting() throws Exception {
+        for (Object type : new Object[]{"", "LT/TH", "OTHER"}) {
+            var row = typedRow("LT"); row[3] = type;
+            assertThrows(IllegalArgumentException.class, () -> new WeeklyPlanExcelReader().readPlan(file(new Object[][]{TYPED_HEADERS, row})));
+        }
+        for (Object periods : new Object[]{"", 0, -1, 1.5}) {
+            var row = typedRow("TH"); row[10] = periods;
+            assertThrows(IllegalArgumentException.class, () -> new WeeklyPlanExcelReader().readPlan(file(new Object[][]{TYPED_HEADERS, row})));
+        }
+        for (Object credits : new Object[]{"", 0, 31}) {
+            var row = typedRow("LT"); row[9] = credits;
+            assertThrows(IllegalArgumentException.class, () -> new WeeklyPlanExcelReader().readPlan(file(new Object[][]{TYPED_HEADERS, row})));
+        }
+    }
+    @Test void aliasesFromBev1StillValidateDuplicateColumnsAndExactCourseCohort() throws Exception {
+        var headers = TYPED_HEADERS.clone(); headers[3] = "Hình thức"; headers[7] = "Từ ngày"; headers[8] = "Đến ngày"; headers[10] = "Tổng tiết";
+        assertEquals(30, new WeeklyPlanExcelReader().readPlan(file(new Object[][]{headers, typedRow("Thực hành")})).getFirst().getPracticePeriods());
+        var duplicate = java.util.Arrays.copyOf(TYPED_HEADERS, 12); duplicate[11] = "Loại lớp";
+        assertThrows(IllegalArgumentException.class, () -> new WeeklyPlanExcelReader().readPlan(file(new Object[][]{duplicate, typedRow("LT")})));
+        var otherCohort = typedRow("LT"); otherCohort[5] = "2025";
+        assertThrows(IllegalArgumentException.class, () -> new WeeklyPlanExcelReader().read(file(new Object[][]{TYPED_HEADERS, otherCohort}), teachers()));
+    }
     @Test void planCanBeReadIndependentlyOfTeacherSource() throws Exception {
         var course = new WeeklyPlanExcelReader().readPlan(plan()).getFirst();
         assertEquals("NET", course.getCourseCode()); assertEquals(30, course.getTheoryPeriods());

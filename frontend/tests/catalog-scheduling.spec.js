@@ -138,7 +138,7 @@ test('manual plan is sent as one workbook and an incomplete result does not expo
   await expect(page.getByRole('heading', { name: 'Bản xem trước — chưa lưu', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Xem TKB', exact: true })).toBeDisabled();
   const book = new ExcelJS.Workbook(); await book.xlsx.load(state.generated[0].plan);
-  expect(book.worksheets[0].getCell('B2').value).toBe('NET'); expect(book.worksheets[0].getCell('J2').value).toBe(6);
+  expect(book.worksheets[0].getCell('B2').value).toBe('NET'); expect(book.worksheets[0].getCell('D2').value).toBe('LT'); expect(book.worksheets[0].getCell('K2').value).toBe(6);
   expect(state.generated[0].teacherFile).toBeNull(); expect(state.generated[0].roomFile).toBeNull();
 });
 

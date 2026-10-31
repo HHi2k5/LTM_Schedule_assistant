@@ -13,6 +13,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest @AutoConfigureMockMvc @ActiveProfiles("test")
 class SchedulingPlanTest extends SchedulingPlanContract {
+    @Test void bev1PlanRowsCanUseSavedCatalogsAndPublishCompletePersonalSchedules() throws Exception {
+        var assignment = catalogs.listAssignments(school, lecturer.id()).getFirst();
+        catalogs.updateAssignment(school, lecturer.id(), assignment.id(), new com.dto.CatalogDTO.AssignmentInput("NET", "Networking", "2024", 1, 1, true, assignment.revision()));
+        var lab = catalogs.createRoom(school, new com.dto.CatalogDTO.RoomInput("LAB01", "Phòng máy", "PRACTICE", 30, "B", true, null));
+        var p = create(department); var source = plans.options(p.plan().id());
+        var lt = WeeklyPlanExcelReaderTest.typedRow("LT"); lt[10] = 6;
+        var th = WeeklyPlanExcelReaderTest.typedRow("TH"); th[4] = 25; th[6] = 2; th[10] = 3;
+        var configuration = new com.dto.CatalogSchedulingDTO.Configuration(source.snapshot(), java.util.List.of(lecturer.id()), java.util.List.of(room.id(), lab.id()), java.util.List.of(), source.periodChoices().getFirst().id(), false);
+        p = plans.generate(p.plan().id(), p.plan().revision(), WeeklyPlanExcelReaderTest.file(new Object[][]{WeeklyPlanExcelReaderTest.TYPED_HEADERS, lt, th}), configuration);
+        assertTrue(p.draft().summary().complete()); assertEquals(2, p.draft().courses().size()); assertEquals(3, p.draft().result().getClassWorkloads().size());
+        assertTrue(projection(p.plan().id()).isEmpty());
+        p = plans.confirm(p.plan().id(), p.plan().revision());
+        assertEquals("CONFIRMED", p.plan().state());
+        assertEquals(12, projection(p.plan().id()).stream().mapToInt(com.model.TeachingCourse::getNumPeriods).sum());
+        assertFalse(calendars.getWeeklySchedule(lecturer.accountTeacherId(), 1).getLessons().isEmpty());
+    }
     @Test void multipartDraftEndpointAndJsonConfirmationPublishTheSameStoredVersion() throws Exception {
         SecurityContextHolder.clearContext(); String auth = "Bearer " + tokens.issue(adminId); String root = "/api/admin/scheduling-plans";
         var created = mvc.perform(post(root).header("Authorization", auth).contentType("application/json").content(json.writeValueAsString(Map.of(

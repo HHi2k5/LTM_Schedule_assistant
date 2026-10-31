@@ -277,7 +277,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
         onBusy={setBusy} onSignature={setCatalogInput} onManageCatalogs={onManageCatalogs} onStart={() => { setResult(null); setExportError(''); }} onResult={acceptResult}/>}
       {sourceMode === 'files' && <>
       <div className="import-steps">
-        <span>1. Kế hoạch: khoảng ngày, tín chỉ, tổng tiết LT/TH</span>
+        <span>1. Kế hoạch: loại lớp LT/TH, khoảng ngày, tín chỉ, số tiết</span>
         <span>2. Giảng viên: môn - khóa, trọng số LT/TH</span>
         <span>3. File DS Phòng học (Lý thuyết & LAB)</span>
       </div>
@@ -309,7 +309,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
             <button type="button" className="button compact file-template-button" aria-label="Tham khảo mẫu Excel kế hoạch mở lớp" disabled={busy || exporting} onClick={downloadPlanTemplate}>
               <Download size={15} /> Tham khảo mẫu Excel
             </button>
-            <small>Gồm: STT, Mã môn, Tên học phần, Sĩ số, Khóa, Số lớp mở, Tuần bắt đầu/kết thúc (ngày/tháng/năm), Số tín chỉ, Tổng tiết LT, Tổng tiết TH theo đề cương. Không cần thứ hoặc số tiết mỗi buổi.</small>
+            <small>Mẫu mới gồm: STT, Mã môn, Tên học phần, Loại lớp (LT / TH), Sĩ số, Khóa, Số lớp mở, Tuần bắt đầu/kết thúc (ngày/tháng/năm), Số tín chỉ, Số tiết. Mỗi loại lớp là một dòng, có sĩ số và khoảng ngày riêng. Mẫu cũ có Tổng tiết LT/TH vẫn dùng được.</small>
           </div>
 
           <div className="file-field">
@@ -358,7 +358,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
         <form onSubmit={handleManualSubmit} style={{ marginTop: '1rem' }}>
           <fieldset className="manual-fields" disabled={busy || exporting}>
           <p className="muted-text">Dùng thông tin trường và mốc tuần ở phía trên. Mỗi dòng cần đủ dữ liệu; xóa dòng không dùng trước khi gửi.</p>
-          <p className="muted-text">Cuộn ngang để chỉnh các cột còn lại. Tổng tiết LT/TH lấy theo đề cương; ghi 0 cho phần không học. Phạm vi tối đa 100 tuần từ mốc tuần 1, bảng giờ gồm 12 tiết.</p>
+          <p className="muted-text">Cuộn ngang để chỉnh các cột còn lại. Tổng tiết LT/TH lấy theo đề cương; ghi 0 cho phần không học. Khi gửi, hệ thống tách mỗi loại LT/TH thành một dòng trong mẫu Excel mới. Phạm vi tối đa 100 tuần từ mốc tuần 1, bảng giờ gồm 12 tiết.</p>
           {/* BẢNG 1: KẾ HOẠCH MỞ LỚP */}
           <h4><BookOpen size={16} /> Bảng 1: Kế hoạch mở lớp</h4>
           <div className="table-scroll" style={{ marginBottom: '1rem' }}>

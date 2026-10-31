@@ -531,9 +531,12 @@ test('weekly planner submits syllabus hours and teacher weights then filters var
     return Buffer.from(part.slice(part.indexOf('\r\n\r\n') + 4, part.lastIndexOf('\r\n')), 'latin1');
   };
   const plan = new ExcelJS.Workbook(); await plan.xlsx.load(fileBytes('planFile'));
-  expect(plan.worksheets[0].getCell('J2').value).toBe(30);
+  expect(plan.worksheets[0].getCell('D2').value).toBe('LT');
+  expect(plan.worksheets[0].getCell('D3').value).toBe('TH');
+  expect(plan.worksheets[0].getCell('J2').value).toBe(3);
   expect(plan.worksheets[0].getCell('K2').value).toBe(30);
-  expect(plan.worksheets[0].getCell('G2').value).toBe('10/08/2026');
+  expect(plan.worksheets[0].getCell('K3').value).toBe(30);
+  expect(plan.worksheets[0].getCell('H2').value).toBe('10/08/2026');
   const teachers = new ExcelJS.Workbook(); await teachers.xlsx.load(fileBytes('teacherFile'));
   expect(teachers.worksheets[0].getCell('F2').value).toBe(2);
   expect(teachers.worksheets[0].getCell('G2').value).toBe(8);

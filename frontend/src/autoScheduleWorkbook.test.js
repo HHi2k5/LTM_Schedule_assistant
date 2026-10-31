@@ -14,15 +14,28 @@ const rooms = [{ roomCode: 'LT', roomType: 'THEORY', capacity: 60 }, { roomCode:
 test('new XLSX plan keeps full dates, credits and syllabus workload without assigned weekdays or session lengths', async () => {
   const book = new ExcelJS.Workbook(); await book.xlsx.load(await planWorkbook([plan]).xlsx.writeBuffer());
   const sheet = book.worksheets[0];
-  assert.deepEqual(planHeaders, ['STT', 'Mã môn', 'Tên học phần', 'Sĩ số', 'Khóa', 'Số lớp mở',
-    'Tuần bắt đầu — từ ngày', 'Tuần kết thúc — đến ngày', 'Số tín chỉ', 'Tổng tiết LT', 'Tổng tiết TH']);
+  assert.deepEqual(planHeaders, ['STT', 'Mã môn', 'Tên học phần', 'Loại lớp (LT / TH)', 'Sĩ số', 'Khóa', 'Số lớp mở',
+    'Tuần bắt đầu — từ ngày', 'Tuần kết thúc — đến ngày', 'Số tín chỉ', 'Số tiết']);
   assert.deepEqual(sheet.getRow(1).values.slice(1), planHeaders);
   assert.equal(sheet.columnCount, 11);
-  assert.deepEqual(sheet.getRow(2).values.slice(1, 12), [1, 'NET', plan.courseName, 50, '2024', 1, '28/12/2026', '28/03/2027', 3, 30, 45]);
+  assert.equal(sheet.rowCount, 3);
+  assert.deepEqual(sheet.getRow(2).values.slice(1), [1, 'NET', plan.courseName, 'LT', 50, '2024', 1, '28/12/2026', '28/03/2027', 3, 30]);
+  assert.deepEqual(sheet.getRow(3).values.slice(1), [2, 'NET', plan.courseName, 'TH', 50, '2024', 1, '28/12/2026', '28/03/2027', 3, 45]);
   assert.equal(planHeaders.includes('Thứ 2'), false); assert.equal(planHeaders.includes('Tiết BĐ'), false);
   const teachers = teacherWorkbook([teacher]).worksheets[0];
   assert.deepEqual(teachers.getRow(1).values.slice(1), teacherHeaders);
   assert.deepEqual(teachers.getRow(2).values.slice(-2), [2, 8]);
+});
+
+test('separate LT and TH rows preserve their own class sizes, counts, dates and hours', async () => {
+  const rows = [{ ...plan, classType: 'LT', classSize: 60, numClasses: 2, totalPeriods: 30 },
+    { ...plan, classType: 'TH', classSize: 20, numClasses: 6, studyStartDate: '2027-01-04', totalPeriods: 15 }];
+  const book = new ExcelJS.Workbook(); await book.xlsx.load(await planWorkbook(rows).xlsx.writeBuffer());
+  const sheet = book.worksheets[0];
+  assert.deepEqual(sheet.getRow(2).values.slice(1), [1, 'NET', plan.courseName, 'LT', 60, '2024', 2, '28/12/2026', '28/03/2027', 3, 30]);
+  assert.deepEqual(sheet.getRow(3).values.slice(1), [2, 'NET', plan.courseName, 'TH', 20, '2024', 6, '04/01/2027', '28/03/2027', 3, 15]);
+  const theoryOnly = planWorkbook([{ ...plan, practicePeriods: 0 }]).worksheets[0];
+  assert.equal(theoryOnly.rowCount, 2); assert.equal(theoryOnly.getCell('D2').value, 'LT');
 });
 
 test('manual validation accepts different syllabus structures and rejects missing hours, weights and invalid windows', () => {

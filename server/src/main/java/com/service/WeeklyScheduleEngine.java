@@ -201,7 +201,8 @@ final class WeeklyScheduleEngine {
             String signature = c.getCourseName() + ":" + c.getCredits() + ":" + c.getTheoryPeriods() + ":" + c.getPracticePeriods()
                     + ":" + c.getTeachers().stream().sorted(Comparator.comparing(TeacherCandidateDTO::getTeacherId))
                     .map(t -> t.getTeacherId() + ":" + t.getTheoryWeight() + ":" + t.getPracticeWeight()).toList();
-            var old = signatures.putIfAbsent(c.getCourseCode() + ":" + c.getCohort(), signature);
+            String rowType = c.getTheoryPeriods() == 0 ? "TH" : c.getPracticePeriods() == 0 ? "LT" : "BOTH";
+            var old = signatures.putIfAbsent(c.getCourseCode() + ":" + c.getCohort() + ":" + rowType, signature);
             if (old != null && !old.equals(signature)) throw new IllegalArgumentException(row + "cùng môn/khóa có tín chỉ, khối lượng hoặc GV/trọng số mâu thuẫn.");
         }
     }

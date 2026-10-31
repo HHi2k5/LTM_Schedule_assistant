@@ -9,7 +9,7 @@ import java.time.*;
 import java.time.format.*;
 import java.util.*;
 
-/** Strict, header-based contract for the new three-file workflow. */
+/** Reads explicit LT/TH rows and the earlier combined syllabus format. */
 final class WeeklyPlanExcelReader {
     private final DataFormatter formatter = new DataFormatter(Locale.ROOT);
     private record Table(Sheet sheet, int firstDataRow, Map<String, Integer> columns) {}
@@ -31,20 +31,39 @@ final class WeeklyPlanExcelReader {
         validateFile(plan, "Kế hoạch");
         try (var input = plan.getInputStream(); var workbook = new XSSFWorkbook(input)) {
             var table = table(workbook, List.of("ma mon", "ten hoc phan", "si so", "khoa", "so lop mo", "tuan bat dau",
-                    "tuan ket thuc", "so tin chi", "tong tiet lt", "tong tiet th"), "Kế hoạch");
+                    "tuan ket thuc", "so tin chi"), "Kế hoạch");
+            boolean separateTypes = table.columns().containsKey("loai lop") || table.columns().containsKey("so tiet");
+            var workloadColumns = separateTypes ? List.of("loai lop", "so tiet") : List.of("tong tiet lt", "tong tiet th");
+            if (!table.columns().keySet().containsAll(workloadColumns))
+                throw new IllegalArgumentException("Kế hoạch: cần đủ hai cột Loại lớp (LT / TH), Số tiết hoặc Tổng tiết LT, Tổng tiết TH.");
             for (int i = table.firstDataRow(); i <= table.sheet().getLastRowNum(); i++) {
                 Row row = table.sheet().getRow(i);
                 if (empty(row)) continue;
                 String label = "Kế hoạch dòng " + (i + 1) + ": ";
                 String code = required(table, row, "ma mon", label).toUpperCase(Locale.ROOT);
                 String cohort = required(table, row, "khoa", label);
+                int theory, practice;
+                if (separateTypes) {
+                    String type = normalize(required(table, row, "loai lop", label));
+                    int periods = integer(table, row, "so tiet", 1, 1000, label);
+                    switch (type) {
+                        case "lt", "ly thuyet", "theory" -> { theory = periods; practice = 0; }
+                        case "th", "thuc hanh", "practice", "lab" -> { theory = 0; practice = periods; }
+                        default -> throw new IllegalArgumentException(label + "Loại lớp phải là LT hoặc TH.");
+                    }
+                } else {
+                    theory = integer(table, row, "tong tiet lt", 0, 1000, label);
+                    practice = integer(table, row, "tong tiet th", 0, 1000, label);
+                    if (theory + practice == 0) throw new IllegalArgumentException(label + "tổng tiết LT/TH không đồng thời bằng 0.");
+                }
+                int classSize = integer(table, row, "si so", 1, 1000, label);
                 var course = CourseDemandDTO.builder().stt(String.valueOf(i + 1)).courseCode(code)
                         .courseName(required(table, row, "ten hoc phan", label)).cohort(cohort)
-                        .classSize(integer(table, row, "si so", 1, 1000, label))
+                        .classSize(classSize)
                         .totalClassesToOpen(integer(table, row, "so lop mo", 1, 500, label))
                         .credits(integer(table, row, "so tin chi", 1, 30, label))
-                        .theoryPeriods(integer(table, row, "tong tiet lt", 0, 1000, label))
-                        .practicePeriods(integer(table, row, "tong tiet th", 0, 1000, label))
+                        .theoryPeriods(theory).practicePeriods(practice)
+                        .practiceGroupSize(separateTypes && practice > 0 ? classSize : null)
                         .studyStartDate(date(table, row, "tuan bat dau", label))
                         .studyEndDate(date(table, row, "tuan ket thuc", label)).build();
                 courses.add(course);
@@ -89,8 +108,10 @@ final class WeeklyPlanExcelReader {
             var columns = new HashMap<String, Integer>();
             for (var cell : row) {
                 String h = normalize(formatter.formatCellValue(cell));
-                if (h.startsWith("tuan bat dau")) h = "tuan bat dau";
-                if (h.startsWith("tuan ket thuc")) h = "tuan ket thuc";
+                if (h.startsWith("tuan bat dau") || h.equals("tu ngay")) h = "tuan bat dau";
+                if (h.startsWith("tuan ket thuc") || h.equals("den ngay")) h = "tuan ket thuc";
+                if (h.startsWith("loai lop") || h.equals("loai") || h.equals("hinh thuc")) h = "loai lop";
+                if (h.equals("tong tiet") || h.equals("so tiet")) h = "so tiet";
                 if (h.equals("ten gv") || h.equals("ho ten")) h = "ho ten giang vien";
                 if (!h.isEmpty() && columns.putIfAbsent(h, cell.getColumnIndex()) != null)
                     throw new IllegalArgumentException(label + ": cột trùng " + h);
