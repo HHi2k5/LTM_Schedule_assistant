@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Ngrok: share app on port 8088",
+			"type": "shell",
+			"command": "ngrok",
+			"args": [
+				"http",
+				"8088",
+				"--log=stdout"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
