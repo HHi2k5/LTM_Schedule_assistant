@@ -47,4 +47,14 @@ class WeeklyReservationsTest {
         assertFalse(book.roomBusy("S", "LAB-A", monday, start, end));
         assertFalse(book.roomBusy("OTHER", "LAB-A", monday, end, end.plusHours(1)));
     }
+
+    @Test void legacySchoolLetterCaseCannotHideARoomOrClassReservationAndRollbackUsesTheSameKey() {
+        var book = new WeeklyReservations();
+        book.add(new Reservation("GV", "ptit", "Lab-A", monday, start, end, "CLASS", "LT", false, false));
+        assertTrue(book.roomBusy("PTIT", "LAB-A", monday, start, end));
+        assertTrue(book.studentsBusy("PTIT", "CLASS", "TH", true, monday, start, end));
+        book.rollback(0);
+        assertFalse(book.roomBusy("PTIT", "LAB-A", monday, start, end));
+        assertFalse(book.studentsBusy("PTIT", "CLASS", "TH", true, monday, start, end));
+    }
 }

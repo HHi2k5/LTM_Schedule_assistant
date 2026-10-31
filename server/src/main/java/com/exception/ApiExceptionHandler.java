@@ -20,13 +20,18 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(status).body(new ApiError("ERROR", message));
     }
     @ExceptionHandler({IllegalArgumentException.class, MissingServletRequestParameterException.class,
-            MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
+            MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class,
+            org.springframework.web.multipart.support.MissingServletRequestPartException.class})
     public ResponseEntity<ApiError> badInput(Exception e) {
         return error(HttpStatus.BAD_REQUEST, e instanceof IllegalArgumentException && e.getMessage() != null
                 ? e.getMessage() : "Dữ liệu yêu cầu không hợp lệ hoặc thiếu trường bắt buộc.");
     }
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiError> missing(ResourceNotFoundException e) { return error(HttpStatus.NOT_FOUND, e.getMessage()); }
+    @ExceptionHandler(SchedulingPlanConflictException.class)
+    public ResponseEntity<?> planConflict(SchedulingPlanConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(java.util.Map.of("status", "ERROR", "message", e.getMessage(), "conflicts", e.getConflicts()));
+    }
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiError> credentials() { return error(HttpStatus.UNAUTHORIZED, "Sai tên đăng nhập hoặc mật khẩu."); }
     @ExceptionHandler(AccessDeniedException.class)

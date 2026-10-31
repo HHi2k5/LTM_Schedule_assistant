@@ -1,0 +1,14 @@
+.plans-workspace { display: grid; gap: 20px; min-width: 0; }
+.plan-name { margin-top: 14px !important; line-height: 1.7; overflow-wrap: anywhere; }
+.plan-conflicts { margin-top: 18px; padding: 18px; border: 1px solid #f5c28b; border-left: 4px solid #d97706; background: #fffbeb; border-radius: 10px; color: #78350f; font-size: 12px; }
+.plan-conflicts h4 { display: flex; align-items: center; gap: 8px; }
+.plan-conflicts ul { max-height: 380px; overflow: auto; padding-left: 20px; }
+.plan-conflicts li { padding: 8px 0; }
+.plan-conflicts p { margin: 5px 0; }
+.scheduling-plans .catalog-section-heading > label { min-width: 220px; }
+.scheduling-plans .catalog-table-wrap table { min-width: 720px; }
+@media (max-width: 700px) {
+  .scheduling-plans .catalog-section-heading > label { width: 100%; min-width: 0; }
+  .scheduling-plans .catalog-school-bar > label { min-width: 0; flex-basis: 100%; }
+  .scheduling-plans .catalog-actions .button { flex: 1 1 100%; justify-content: center; }
+}

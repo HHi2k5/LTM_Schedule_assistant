@@ -1,0 +1,15 @@
+.adjustment-panel { border-top: 4px solid #8b5cf6; scroll-margin-top: 20px; }
+.adjustment-panel fieldset { display: grid; gap: 16px; min-width: 0; border: 0; padding: 0; }
+.adjustment-panel legend { font-weight: 700; margin-bottom: 14px; }
+.adjustment-panel label:not(.catalog-checkbox) { display: grid; gap: 7px; }
+.adjustment-panel input:not([type=checkbox]):not([type=radio]), .adjustment-panel select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #cbd5e1; border-radius: 9px; background: white; color: #172033; }
+.adjustment-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+.adjustment-selection { min-width: 0; padding: 16px; border-radius: 12px; background: #f5f3ff; }
+.adjustment-selection .catalog-checkbox { padding: 8px 0; }
+.adjustment-preview { margin-top: 24px; padding: 16px; border: 1px solid #c4b5fd; border-radius: 12px; }
+.adjustment-preview td { vertical-align: top; min-width: 180px; white-space: normal; overflow-wrap: anywhere; }
+.adjustment-preview p { margin: 8px 0; }
+.adjustment-log summary { cursor: pointer; font-weight: 700; }
+.adjustment-log td { white-space: normal; overflow-wrap: anywhere; }
+.board-locked { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: #334155; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 3px 7px; border-radius: 6px; }
+@media (max-width: 640px) { .adjustment-selection, .adjustment-preview { padding: 10px; } .adjustment-panel .catalog-actions { align-items: stretch; } }

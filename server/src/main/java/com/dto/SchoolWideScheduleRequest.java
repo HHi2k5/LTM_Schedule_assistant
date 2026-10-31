@@ -12,6 +12,9 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class SchoolWideScheduleRequest {
+    @Builder.Default private List<PlanBusyDTO> busySlots = new java.util.ArrayList<>();
+    private Long schedulingPlanId;
+    private boolean previewOnly;
     private LocalDate semesterStartDate;   // Ngày Thứ 2 của Tuần 1 (VD: "2026-08-10")
     private int totalWeeks;                // Tổng số tuần học (Mặc định: 16)
     private String buildingSuffix;         // Ký hiệu tòa nhà (VD: "A2" -> Phòng "101-A2"..."705-A2")

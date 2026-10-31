@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class GeneratedClassSlot {
+    private Integer demandIndex;
     private String classId;
     private String parentClassId;
     private java.time.LocalDate studyStartDate;

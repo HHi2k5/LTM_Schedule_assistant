@@ -31,10 +31,12 @@ public class School {
     private Teacher teacher;
 
  @OneToMany(mappedBy = "school", cascade = CascadeType.ALL, orphanRemoval = true)
+@org.hibernate.annotations.BatchSize(size = 64)
 @Builder.Default
 private Set<SchoolPeriod> periods = new HashSet<>();
 
 @OneToMany(mappedBy = "school", cascade = CascadeType.ALL, orphanRemoval = true)
+@org.hibernate.annotations.BatchSize(size = 64)
 @Builder.Default
 private Set<TeachingCourse> courses = new HashSet<>();
 }

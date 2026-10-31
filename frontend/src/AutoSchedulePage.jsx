@@ -6,6 +6,8 @@ import { planWorkbook, teacherWorkbook } from './autoScheduleWorkbook';
 import { scheduledWorkbook } from './scheduleExport';
 import { firstActiveWeek, validateAutoResult, validateFile, validateManual, validateSchool } from './workflow';
 import FormError from './FormError';
+import CatalogSchedulingForm from './CatalogSchedulingForm';
+import { resultLecturer } from './catalogScheduling';
 
 function PlanSchedulingFields({ row, index, update }) {
   const change = field => event => update(field, event.target.value);
@@ -15,7 +17,9 @@ function PlanSchedulingFields({ row, index, update }) {
   </>;
 }
 
-export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTeacherSchedule }) {
+export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTeacherSchedule, onManageCatalogs }) {
+  const [sourceMode, setSourceMode] = useState('catalog');
+  const [catalogInput, setCatalogInput] = useState('');
   const [schoolId, setSchoolId] = useState('PTIT');
   const [schoolName, setSchoolName] = useState('Học viện Công nghệ Bưu chính Viễn thông');
   const [startDate, setStartDate] = useState(semesterStart || '2026-08-10');
@@ -59,7 +63,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     { roomCode: '602-LAB-A2', roomType: 'PRACTICE', capacity: 30, building: 'A2' }
   ]);
 
-  const inputSignature = JSON.stringify([schoolId, schoolName, startDate, ...[planFile, teacherFile, roomFile].map(file => file && [file.name, file.size, file.lastModified]), manualPlans, manualTeachers, manualRooms]);
+  const inputSignature = sourceMode === 'catalog' ? JSON.stringify([sourceMode, catalogInput]) : JSON.stringify([sourceMode, schoolId, schoolName, startDate, ...[planFile, teacherFile, roomFile].map(file => file && [file.name, file.size, file.lastModified]), manualPlans, manualTeachers, manualRooms]);
   const saved = result?.saved === true && result?.status === 'SUCCESS';
   const incompleteClasses = result?.classWorkloads?.filter(row => row.missingPeriods > 0) || [];
   const missingPeriods = incompleteClasses.reduce((total, row) => total + row.missingPeriods, 0);
@@ -69,6 +73,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
       ? 'Chưa xếp đủ lịch. Vui lòng kiểm tra dữ liệu và phòng học rồi thử lại. Lịch hiện có được giữ nguyên.'
       : '';
   useEffect(() => {
+    if (sourceMode !== 'files') return;
     const controller = new AbortController();
     setRoomPool({ status: 'loading', count: 0 });
     const timer = setTimeout(() => {
@@ -81,7 +86,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
         .catch(err => { if (err.name !== 'AbortError') setRoomPool({ status: 'error', count: 0, message: err.message }); });
     }, 300);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [schoolId, roomRevision]);
+  }, [schoolId, roomRevision, sourceMode]);
 
   function chooseFile(event, setter, label) {
     const file = event.target.files?.[0] || null;
@@ -246,7 +251,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     if (!visibleWeeks(slot).length) return false;
     if (!filterText.trim()) return true;
     const q = filterText.toLocaleLowerCase('vi');
-    return `${slot.teacherId} ${slot.teacherName} ${slot.courseCode} ${slot.courseName} ${slot.room} ${slot.cohort || ''} ${slot.classGroup || ''}`
+    return `${slot.teacherId} ${resultLecturer(result, slot.teacherId).lecturerCode} ${slot.teacherName} ${slot.courseCode} ${slot.courseName} ${slot.room} ${slot.cohort || ''} ${slot.classGroup || ''}`
       .toLocaleLowerCase('vi')
       .includes(q);
   });
@@ -255,7 +260,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     <section className="standalone-panel import-panel auto-panel" aria-busy={busy}>
       <div className="panel-title">
         <div>
-          <h2>Tự động xếp lịch & chia phòng toàn trường (Bộ 3 File Excel)</h2>
+          <h2>Tự động xếp lịch & chia phòng toàn trường</h2>
           <p className="muted-text">
             Xếp đủ tổng tiết LT/TH theo đề cương trong khoảng ngày của từng lớp. Phân lớp lý thuyết và nhóm thực hành cho giảng viên theo hai trọng số riêng; chọn phòng theo sĩ số.
           </p>
@@ -264,6 +269,13 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
         </div>
       </div>
 
+      <div className="template-actions schedule-source-switch" role="group" aria-label="Nguồn dữ liệu xếp lịch">
+        <button type="button" className={`button ${sourceMode === 'catalog' ? 'primary' : ''}`} aria-pressed={sourceMode === 'catalog'} disabled={busy || exporting} onClick={() => { setSourceMode('catalog'); setError(''); }}>Danh mục đã lưu</button>
+        <button type="button" className={`button ${sourceMode === 'files' ? 'primary' : ''}`} aria-pressed={sourceMode === 'files'} disabled={busy || exporting} onClick={() => { setSourceMode('files'); setError(''); }}>Ba file Excel</button>
+      </div>
+      {sourceMode === 'catalog' && <CatalogSchedulingForm startDate={startDate} onDateChange={setStartDate} disabled={busy || exporting}
+        onBusy={setBusy} onSignature={setCatalogInput} onManageCatalogs={onManageCatalogs} onStart={() => { setResult(null); setExportError(''); }} onResult={acceptResult}/>}
+      {sourceMode === 'files' && <>
       <div className="import-steps">
         <span>1. Kế hoạch: khoảng ngày, tín chỉ, tổng tiết LT/TH</span>
         <span>2. Giảng viên: môn - khóa, trọng số LT/TH</span>
@@ -312,7 +324,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
             <button type="button" className="button compact file-template-button" aria-label="Tham khảo mẫu Excel giảng viên" disabled={busy || exporting} onClick={downloadTeacherTemplate}>
               <Download size={15} /> Tham khảo mẫu Excel
             </button>
-            <small>Thêm hai cột Trọng số LT và Trọng số TH (0 nghĩa là không nhận loại đó). Dùng mã GV trên tài khoản đã đăng ký để giảng viên xem đúng lịch; xếp lịch không tạo tài khoản đăng nhập.</small>
+            <small>Thêm hai cột Trọng số LT và Trọng số TH (0 nghĩa là không nhận loại đó). Khi lưu thành công, GV chưa có tài khoản được tạo tên đăng nhập MGV, mật khẩu ban đầu là họ tên viết liền, chữ thường, không dấu + MGV. Kết quả chỉ xem trước không tạo tài khoản.</small>
           </div>
 
           <div className="file-field">
@@ -475,6 +487,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
           </fieldset>
         </form>
       </details>
+      </>}
 
       <FormError message={error}/>
 
@@ -552,7 +565,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
                   const isPractice = slot.sessionType === 'PRACTICE';
                   return (
                     <tr key={index}>
-                      <td><strong>{slot.teacherId}</strong></td>
+                      <td><strong>{resultLecturer(result, slot.teacherId).lecturerCode}</strong>{result?.catalogContext && <small style={{ display: 'block' }}>{resultLecturer(result, slot.teacherId).accountTeacherId ? `Tài khoản: ${resultLecturer(result, slot.teacherId).accountTeacherId}` : 'Chưa liên kết tài khoản'}</small>}</td>
                       <td>{slot.teacherName}</td>
                       <td><code>{slot.courseCode}</code></td>
                       <td>{slot.courseName}</td>

@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class TeacherCandidateDTO {
+    private Long catalogLecturerId;
+    private String lecturerCode;
     private Integer theoryWeight;
     private Integer practiceWeight;
     private String teacherId;             

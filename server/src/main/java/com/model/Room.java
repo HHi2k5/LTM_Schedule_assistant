@@ -35,4 +35,12 @@ public class Room {
 
     @Column(name = "school_code", length = 50)
     private String schoolCode;
+
+    @Column(name = "active", nullable = false)
+    @Builder.Default
+    private boolean active = true;
+
+    @Version
+    @Column(name = "revision", nullable = false)
+    private long revision;
 }

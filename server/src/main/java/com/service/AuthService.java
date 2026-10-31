@@ -15,91 +15,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
-import java.time.LocalDate;
 import java.util.HexFormat;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private static final SecureRandom TEACHER_ID_RANDOM = new SecureRandom();
-    private static final String TEACHER_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    private static final int MAX_TEACHER_ID_ATTEMPTS = 100;
 
     private final TeacherRepository teacherRepository;
     private final TokenService tokens;
     private final PasswordEncoder passwords;
     private final ScheduleWriteLock writeLock;
-
-    @Transactional
-    public AuthResponse register(AuthRequest req) {
-        writeLock.acquire();
-        if (req == null) throw new IllegalArgumentException("Thiếu thông tin đăng ký.");
-        if (req.getRole() != null && !"TEACHER".equals(req.getRole())) {
-            throw new IllegalArgumentException("Đăng ký công khai chỉ dành cho tài khoản giảng viên.");
-        }
-        if (req.getUsername() == null || req.getUsername().isBlank() ||
-            req.getPassword() == null || req.getPassword().isBlank()) {
-            throw new IllegalArgumentException("Vui lòng nhập tên đăng nhập và mật khẩu.");
-        }
-
-        String username = req.getUsername().trim();
-        if (req.getTeacherId() != null && !req.getTeacherId().isBlank()
-                && teacherRepository.findById(req.getTeacherId().trim().toUpperCase(java.util.Locale.ROOT)).isPresent()) {
-            throw new IllegalArgumentException("Không thể đăng ký bằng mã hồ sơ đã tồn tại. Tài khoản mới dùng mã do hệ thống cấp.");
-        }
-        ScheduleValidation.text(username, 50, "Tên đăng nhập");
-        if (req.getPassword().length() < 8 || req.getPassword().getBytes(StandardCharsets.UTF_8).length > 72) {
-            throw new IllegalArgumentException("Mật khẩu cần ít nhất 8 ký tự và tối đa 72 byte UTF-8.");
-        }
-        if (req.getFullName() != null && req.getFullName().length() > 100) throw new IllegalArgumentException("Họ tên quá dài.");
-
-        if (teacherRepository.existsByUsername(username)) {
-            throw new IllegalArgumentException("Tên đăng nhập '" + username + "' đã tồn tại!");
-        }
-
-        LocalDate startDate = req.getSemesterStartDate() != null ? req.getSemesterStartDate() : LocalDate.of(2026, 8, 10);
-        ScheduleValidation.monday(startDate);
-        String teacherId = generateTeacherId();
-        Teacher teacher = Teacher.builder()
-                        .teacherId(teacherId)
-                        .semesterStartDate(startDate).build();
-
-        teacher.setUsername(username);
-        teacher.setPassword(passwords.encode(req.getPassword()));
-        teacher.setFullName(req.getFullName() != null && !req.getFullName().isBlank() ? req.getFullName().trim() : teacherId);
-        teacher.setRole("TEACHER");
-        if (req.getSemesterStartDate() != null) {
-            teacher.setSemesterStartDate(req.getSemesterStartDate());
-        }
-
-        teacherRepository.save(teacher);
-
-        return AuthResponse.builder()
-                .accessToken(tokens.issue(teacher.getTeacherId()))
-                .status("SUCCESS")
-                .message("Đăng ký tài khoản thành công!")
-                .teacherId(teacher.getTeacherId())
-                .fullName(teacher.getFullName())
-                .username(teacher.getUsername())
-                .role(teacher.getRole())
-                .semesterStartDate(teacher.getSemesterStartDate().toString())
-                .build();
-    }
-
-    private String generateTeacherId() {
-        // register() holds the database write lock until this account is committed.
-        for (int attempt = 0; attempt < MAX_TEACHER_ID_ATTEMPTS; attempt++) {
-            var id = new StringBuilder("GV");
-            for (int i = 0; i < 4; i++) {
-                id.append(TEACHER_ID_ALPHABET.charAt(TEACHER_ID_RANDOM.nextInt(TEACHER_ID_ALPHABET.length())));
-            }
-            String candidate = id.toString();
-            if (teacherRepository.findById(candidate).isEmpty()) return candidate;
-        }
-        throw new IllegalArgumentException("Chưa tạo được mã giảng viên mới. Vui lòng thử đăng ký lại.");
-    }
 
     @Transactional
     public AuthResponse login(AuthRequest req) {

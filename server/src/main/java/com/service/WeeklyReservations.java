@@ -6,7 +6,11 @@ import java.util.*;
 /** Resource/day indexes and a rollback journal for tentative placements. */
 final class WeeklyReservations {
     record Reservation(String teacher, String school, String room, LocalDate date, LocalTime start,
-                       LocalTime end, String parent, String group, boolean practice, boolean generated) {}
+                       LocalTime end, String parent, String group, boolean practice, boolean generated, boolean busyOnly) {
+        Reservation(String teacher, String school, String room, LocalDate date, LocalTime start, LocalTime end, String parent, String group, boolean practice, boolean generated) {
+            this(teacher, school, room, date, start, end, parent, group, practice, generated, false);
+        }
+    }
     private record TeacherDay(String teacher, LocalDate date) {}
     private record RoomDay(String school, String room, LocalDate date) {}
     private record StudentDay(String school, String parent, LocalDate date) {}
@@ -23,8 +27,9 @@ final class WeeklyReservations {
     void add(Reservation r) {
         journal.add(r);
         append(teachers, new TeacherDay(r.teacher(), r.date()), r);
-        append(rooms, new RoomDay(r.school(), roomKey(r.room()), r.date()), r);
-        if (r.parent() != null) append(students, new StudentDay(r.school(), r.parent(), r.date()), r);
+        if (r.busyOnly()) return;
+        append(rooms, new RoomDay(schoolKey(r.school()), roomKey(r.room()), r.date()), r);
+        if (r.parent() != null) append(students, new StudentDay(schoolKey(r.school()), r.parent(), r.date()), r);
         if (r.generated()) generatedDays.merge(new GeneratedDay(r.teacher(), r.practice(), r.date().getDayOfWeek()), 1, Integer::sum);
     }
 
@@ -33,8 +38,9 @@ final class WeeklyReservations {
         while (journal.size() > boundary) {
             var r = journal.removeLast();
             removeLast(teachers, new TeacherDay(r.teacher(), r.date()));
-            removeLast(rooms, new RoomDay(r.school(), roomKey(r.room()), r.date()));
-            if (r.parent() != null) removeLast(students, new StudentDay(r.school(), r.parent(), r.date()));
+            if (r.busyOnly()) continue;
+            removeLast(rooms, new RoomDay(schoolKey(r.school()), roomKey(r.room()), r.date()));
+            if (r.parent() != null) removeLast(students, new StudentDay(schoolKey(r.school()), r.parent(), r.date()));
             if (r.generated()) {
                 var key = new GeneratedDay(r.teacher(), r.practice(), r.date().getDayOfWeek());
                 generatedDays.computeIfPresent(key, (ignored, count) -> count == 1 ? null : count - 1);
@@ -45,7 +51,7 @@ final class WeeklyReservations {
     boolean differentSessionDayBlocked(String teacher, LocalDate date, boolean practice) {
         if (generatedDays.containsKey(new GeneratedDay(teacher, !practice, date.getDayOfWeek()))) return true;
         for (var r : teachers.getOrDefault(new TeacherDay(teacher, date), List.of()))
-            if (r.practice() != practice) return true;
+            if (!r.busyOnly() && r.practice() != practice) return true;
         return false;
     }
 
@@ -54,12 +60,12 @@ final class WeeklyReservations {
     }
 
     boolean roomBusy(String school, String room, LocalDate date, LocalTime start, LocalTime end) {
-        return overlaps(rooms.getOrDefault(new RoomDay(school, roomKey(room), date), List.of()), start, end);
+        return overlaps(rooms.getOrDefault(new RoomDay(schoolKey(school), roomKey(room), date), List.of()), start, end);
     }
 
     boolean studentsBusy(String school, String parent, String group, boolean practice,
                          LocalDate date, LocalTime start, LocalTime end) {
-        for (var r : students.getOrDefault(new StudentDay(school, parent, date), List.of())) {
+        for (var r : students.getOrDefault(new StudentDay(schoolKey(school), parent, date), List.of())) {
             if ((!practice || !r.practice() || Objects.equals(group, r.group())) && overlaps(r, start, end)) return true;
         }
         return false;
@@ -73,6 +79,7 @@ final class WeeklyReservations {
         return start.isBefore(r.end()) && r.start().isBefore(end);
     }
     private String roomKey(String room) { return room == null ? "" : room.toUpperCase(Locale.ROOT); }
+    private String schoolKey(String school) { return school == null ? "" : school.toUpperCase(Locale.ROOT); }
     private <K> void append(Map<K, List<Reservation>> index, K key, Reservation r) {
         index.computeIfAbsent(key, ignored -> new ArrayList<>()).add(r);
     }

@@ -16,8 +16,8 @@ class BackendRegressionTest {
     final SchoolRepository schools = mock(SchoolRepository.class);
     final ScheduleService saves = mock(ScheduleService.class);
     final ScheduleWriteLock lock = mock(ScheduleWriteLock.class);
-    final AutoScheduleService automatic = new AutoScheduleService(teachers, mock(RoomRepository.class), saves, lock);
-    final ScheduleService schedules = new ScheduleService(teachers, schools, mock(ScheduleAccess.class), lock);
+    final AutoScheduleService automatic = new AutoScheduleService(teachers, mock(RoomRepository.class), saves, lock, mock(com.repository.SchedulingPlanRepository.class), mock(PublishedBusyReservations.class));
+    final ScheduleService schedules = new ScheduleService(teachers, schools, mock(ScheduleAccess.class), lock, mock(LecturerAccountService.class));
 
     @Test void twoSchoolsWithSameNamedSimultaneousLessonAreBothReturnedAndFlagged() {
         var teacher = teacher("GV01", school("A", "1"), school("B", "1"));

@@ -2,17 +2,19 @@ import { test, expect } from '@playwright/test';
 import { templateWorkbook } from '../src/excel.js';
 import { addDays } from '../src/schedule.js';
 import ExcelJS from 'exceljs';
+import { expectReadable, expectPageFits } from './theme-checks.js';
 
 const teacherId = 'GV_1234567890ABCDEF1234567890ABCDEF';
 const anchor = '2026-08-10';
 const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const slot = { teacherId: 'GV01', teacherName: 'Nguyễn Văn A', courseCode: 'NET', courseName: 'Mạng máy tính', baseCourseName: 'Mạng máy tính', classGroup: '01', cohort: '2024', credits: 3, sessionType: 'THEORY', studentCount: 50, room: '101', roomCapacity: 60, dayOfWeek: 2, startPeriod: 1, numPeriods: 1, weekSchedule: '---11' };
 
-async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures = 0, lessons = [], schools } = {}) {
+async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures = 0, lessons = [], schools, legacy = true } = {}) {
   const state = { calls: [], saved: false, passwordStatus: 200, autoSaved: false, autoSlots: [slot], emptyAuto: false, restoreFailures, roomCount: 1, lessons, schools, weekFailure: false };
   const user = { role, teacherId: role === 'ADMIN' ? 'ADMIN' : teacherId, username: role.toLowerCase(), fullName: role === 'ADMIN' ? 'Quản lý đào tạo' : 'Nguyễn Văn A', semesterStartDate: anchor };
   if (!anonymous) await page.addInitScript(() => sessionStorage.setItem('campus-access-token', 'test-token'));
   await page.route('https://fonts.googleapis.com/**', route => route.abort());
+  await page.route('**/api/admin/institutions**', route => route.fulfill({ contentType: 'application/json', body: '[]' }));
   await page.route('**/api/schedule/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -23,7 +25,7 @@ async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures
       if (state.restoreFailures > 0) return respond({ message: 'Máy chủ đang bận.' }, 500);
       return respond(user);
     }
-    if (path === '/auth/register') return respond({ ...user, status: 'SUCCESS', accessToken: 'registered-token' });
+    if (path === '/auth/login') return respond({ ...user, status: 'SUCCESS', accessToken: 'issued-token' });
     if (path === '/auth/change-password') return state.passwordStatus === 200
       ? respond({ status: 'SUCCESS', message: 'Đổi mật khẩu thành công.' })
       : respond({ status: 'ERROR', message: 'Mật khẩu hiện tại không đúng.' }, state.passwordStatus);
@@ -48,6 +50,7 @@ async function boot(page, { role = 'TEACHER', anonymous = false, restoreFailures
   });
   await page.goto('/');
   if (!anonymous && !restoreFailures) await expect(page.getByRole('heading', { name: role === 'ADMIN' ? 'Xếp lịch toàn trường.' : 'Lịch giảng dạy.' })).toBeVisible();
+  if (!anonymous && !restoreFailures && role === 'ADMIN' && legacy) await page.getByRole('button', { name: 'Ba file Excel', exact: true }).click();
   return state;
 }
 
@@ -74,6 +77,61 @@ async function runManual(page) {
   await page.getByText('Hoặc nhập/chỉnh sửa nhanh', { exact: false }).click();
   await page.getByRole('button', { name: 'Xếp lịch từ 3 bảng dữ liệu trên' }).click();
 }
+
+test('theme: skip navigation, mobile focus return and reduced motion work with readable controls', async ({ page }, testInfo) => {
+  await boot(page);
+  await page.keyboard.press('Tab');
+  const skip = page.getByRole('link', { name: 'Chuyển đến nội dung chính' });
+  await expect(skip).toBeFocused(); await expect(skip).toBeInViewport(); await page.keyboard.press('Enter'); await expect(page.getByRole('main')).toBeFocused();
+  await expectReadable(page.getByLabel('Mã giảng viên', { exact: true }));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await page.getByRole('button', { name: 'Tải lịch', exact: true }).evaluate(e => getComputedStyle(e).transitionDuration)).toBe('0s');
+  await page.setViewportSize({ width: 320, height: 844 }); await expectPageFits(page);
+  const menu = page.getByRole('button', { name: 'Mở điều hướng' }); await menu.click();
+  const drawer = page.getByRole('dialog', { name: 'Điều hướng Campus' });
+  await expect(drawer.getByRole('button', { name: 'Lịch giảng dạy', exact: true })).toBeFocused();
+  await drawer.getByRole('button', { name: 'Đăng xuất', exact: true }).focus(); await page.keyboard.press('Tab');
+  await expect(drawer.getByRole('link', { name: /campus/ })).toBeFocused();
+  await page.keyboard.press('Escape'); await expect(drawer).toHaveCount(0); await expect(menu).toBeFocused();
+  await expectPageFits(page); await page.screenshot({ path: testInfo.outputPath('theme-teacher-320.png'), fullPage: true });
+  await menu.click(); await page.evaluate(() => window.dispatchEvent(new Event('campus-auth-expired')));
+  await expect(page.getByRole('heading', { name: 'Đăng nhập hệ thống', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
+});
+
+test('theme: authentication and error states have readable text at narrow widths', async ({ page }, testInfo) => {
+  await boot(page, { anonymous: true });
+  await page.route('**/api/schedule/auth/login', route => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'Tên đăng nhập hoặc mật khẩu không đúng.' }) }));
+  await page.setViewportSize({ width: 320, height: 844 });
+  const submit = page.getByRole('button', { name: 'Đăng nhập vào không gian làm việc', exact: true });
+  await expectReadable(submit); await expectReadable(page.getByLabel('Tên đăng nhập', { exact: true }), 3, 'borderTopColor');
+  await page.getByLabel('Tên đăng nhập', { exact: true }).fill('giangvien'); await page.getByLabel('Mật khẩu', { exact: true }).fill('WrongPassword8'); await submit.click();
+  await expect(page.getByRole('alert')).toContainText('Tên đăng nhập hoặc mật khẩu không đúng.'); await expectReadable(page.getByRole('alert')); await expect(page.getByRole('alert')).toBeFocused();
+  await expectPageFits(page); await page.screenshot({ path: testInfo.outputPath('theme-login-error-320.png'), fullPage: true });
+});
+
+test('theme: administrator help explains catalog, draft and confirmation flows at tablet width', async ({ page }, testInfo) => {
+  await boot(page, { role: 'ADMIN', legacy: false }); await navigate(page, 'Trợ giúp & hỗ trợ');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await expect(page.getByRole('heading', { name: 'Lưu danh mục một lần', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Xác nhận và xem lại lịch sử', exact: true })).toBeVisible();
+  await expect(page.getByText('Nháp có thể còn thiếu tiết hoặc xung đột.', { exact: false })).toBeVisible();
+  await expectReadable(page.locator('.help-topic p').first()); await expectPageFits(page);
+  await page.screenshot({ path: testInfo.outputPath('theme-help-tablet.png'), fullPage: true });
+});
+
+test('theme: school colors remain identifiable while pale and dark lesson text stays readable', async ({ page }, testInfo) => {
+  const lessons = ['#ffffff', '#ffff00', '#000000'].map((colorCode, i) => ({ id: 801 + i, schoolId: `S${i}`, schoolName: `Trường kiểm thử ${i + 1}`, colorCode, courseName: `Môn học ${i + 1}`, room: `10${i}`, date: addDays(anchor, i), dayOfWeek: 2 + i, startPeriod: 1, endPeriod: 1, startTime: '07:00', endTime: '07:50' }));
+  await boot(page, { lessons });
+  const legend = page.getByRole('list', { name: 'Chú giải trường' }); await expect(legend.getByRole('listitem')).toHaveCount(3);
+  for (const [index, lesson] of lessons.entries()) {
+    const card = page.locator('.lesson-card').filter({ hasText: lesson.courseName }); await card.scrollIntoViewIfNeeded();
+    await expectReadable(card.locator('.lesson-card-title'));
+    expect(await card.evaluate(e => getComputedStyle(e).getPropertyValue('--school-color').trim())).toBe(lesson.colorCode);
+    await expect(legend.getByText(`Trường kiểm thử ${index + 1}`, { exact: true })).toBeAttached();
+  }
+  await expectPageFits(page); await page.screenshot({ path: testInfo.outputPath('theme-personal-colors.png'), fullPage: true });
+});
 
 test('weekly calendar shows every server period after reload and uses each reference school real times', async ({ page }, testInfo) => {
   const periods = Array.from({ length: 12 }, (_, i) => {
@@ -324,7 +382,7 @@ test('today dashboard uses the semester anchor just saved by personal import', a
 test('header clock updates Vietnam time and date at midnight on desktop and mobile', async ({ page }, testInfo) => {
   await page.clock.install({ time: new Date('2026-10-27T16:00:00Z') });
   await page.clock.pauseAt(new Date('2026-10-27T16:59:58Z'));
-  await boot(page, { role: 'ADMIN' });
+  await boot(page, { role: 'ADMIN', legacy: false });
   const clock = page.getByLabel('Giờ Việt Nam', { exact: true });
   await expect(clock).toBeVisible();
   await expect(clock).toHaveText('23:59:58');
@@ -336,20 +394,19 @@ test('header clock updates Vietnam time and date at midnight on desktop and mobi
   await page.screenshot({ path: testInfo.outputPath('header-clock.png') });
 });
 
-test('registration validates UTF-8 password and only sends public account fields', async ({ page }, testInfo) => {
+test('issued-account login has no self-registration and sends only username and password', async ({ page }, testInfo) => {
   const state = await boot(page, { anonymous: true });
-  await page.getByRole('button', { name: 'Đăng ký mới' }).click();
-  await page.getByLabel('Tên đăng nhập', { exact: true }).fill('newteacher');
-  await page.getByLabel('Họ và tên giảng viên', { exact: true }).fill('Nguyễn Văn A');
-  await page.getByLabel('Mật khẩu', { exact: false }).fill('ế'.repeat(25));
-  await page.getByRole('button', { name: 'Hoàn tất đăng ký' }).click();
-  await expect(page.getByRole('alert')).toContainText('72 byte');
-  expect(state.calls.filter(call => call.path === '/auth/register')).toHaveLength(0);
-  await page.getByLabel('Mật khẩu', { exact: false }).fill('password123');
-  await page.getByRole('button', { name: 'Hoàn tất đăng ký' }).click();
+  await expect(page.getByRole('button', { name: /đăng ký/i })).toHaveCount(0);
+  await expect(page.getByLabel('Họ và tên giảng viên', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Sử dụng tài khoản do nhà trường cấp.', { exact: false })).toBeVisible();
+  await page.getByLabel('Tên đăng nhập', { exact: true }).fill('  GV01  ');
+  await page.getByLabel('Mật khẩu', { exact: true }).fill('nguyenvananGV01');
+  await page.getByRole('button', { name: 'Đăng nhập vào không gian làm việc', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Lịch giảng dạy.' })).toBeVisible();
-  const request = state.calls.find(call => call.path === '/auth/register');
-  expect(Object.keys(JSON.parse(request.body)).sort()).toEqual(['fullName', 'password', 'username']);
+  const request = state.calls.find(call => call.path === '/auth/login');
+  expect(JSON.parse(request.body)).toEqual({ username: 'GV01', password: 'nguyenvananGV01' });
+  expect(request.authorization).toBeUndefined(); expect(state.calls.filter(call => call.path === '/auth/register')).toHaveLength(0);
+  expect(await page.evaluate(() => sessionStorage.getItem('campus-access-token'))).toBe('issued-token');
   await navigate(page, 'Cài đặt');
   await expect(page.getByText(teacherId, { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cấp tài khoản GV', exact: true })).toHaveCount(0);
@@ -523,7 +580,7 @@ test('ADMIN has no account provisioning page and settings still allows own passw
   await expect(page.getByRole('heading', { name: 'Đổi mật khẩu', exact: true })).toBeVisible();
   await expect(page.getByText('cấp tài khoản cho hồ sơ', { exact: false })).toHaveCount(0);
   await navigate(page, 'Trợ giúp & hỗ trợ');
-  await expect(page.getByText('Giảng viên tự đăng ký tài khoản.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Tên đăng nhập là MGV, mật khẩu ban đầu', { exact: false })).toBeVisible();
   expect(state.calls.some(call => call.path === '/auth/provision')).toBe(false);
   await screenshot(page, testInfo, 'admin-help');
 });

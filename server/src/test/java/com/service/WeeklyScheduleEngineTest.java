@@ -14,7 +14,7 @@ import static org.mockito.Mockito.*;
 class WeeklyScheduleEngineTest {
     final TeacherRepository teachers = mock(TeacherRepository.class);
     final ScheduleService saves = mock(ScheduleService.class);
-    final AutoScheduleService automatic = new AutoScheduleService(teachers, mock(RoomRepository.class), saves, mock(ScheduleWriteLock.class));
+    final AutoScheduleService automatic = new AutoScheduleService(teachers, mock(RoomRepository.class), saves, mock(ScheduleWriteLock.class), mock(com.repository.SchedulingPlanRepository.class), mock(PublishedBusyReservations.class));
 
     static TeacherCandidateDTO teacher(String id, int lt, int th) {
         return TeacherCandidateDTO.builder().teacherId(id).teacherName(id).theoryWeight(lt).practiceWeight(th).build();
@@ -32,6 +32,14 @@ class WeeklyScheduleEngineTest {
         return List.of(BackendRegressionTest.room("A"), Room.builder().roomCode("LAB").schoolCode("A").isLab(true).capacity(30).roomType("LAB_PRACTICE").build());
     }
     AutoScheduleResponse generate(SchoolWideScheduleRequest request) { return automatic.generateScheduleWithRooms(request, rooms()); }
+    @Test void inactiveRoomsAreNotUsedByWeeklyOrLegacyScheduling() {
+        var inactive = BackendRegressionTest.room("A"); inactive.setActive(false);
+        for (var input : List.of(request(30, 0), BackendRegressionTest.request())) {
+            var result = automatic.generateScheduleWithRooms(input, List.of(inactive));
+            assertFalse(result.isSaved()); assertTrue(result.getScheduledClasses().isEmpty());
+        }
+        verifyNoInteractions(saves);
+    }
     static int hours(GeneratedClassSlot s) { return (int) s.getWeekSchedule().chars().filter(c -> c != '-' && c != ' ').count() * s.getNumPeriods(); }
 
     @ParameterizedTest

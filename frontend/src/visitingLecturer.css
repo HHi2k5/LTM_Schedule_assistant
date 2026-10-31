@@ -1,0 +1,28 @@
+.visiting-panel { border-top: 4px solid #7c3aed; background: linear-gradient(170deg,#fcfaff,#ffffff 35%); }
+.visiting-panel h3 { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.visiting-profile-toggle { margin: 18px 0; }
+.visiting-fields { border: 0; padding: 0; margin: 22px 0 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.visiting-wide { grid-column: 1/-1; min-width: 0; }
+.visiting-class-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 13px; }
+.visiting-panel .catalog-pool-choice { display: flex; flex-direction: row; align-items: start; padding: 12px; background: #f7f4ff; border: 1px solid #e0d6fa; border-radius: 9px; gap: 10px; }
+.visiting-panel .catalog-pool-choice input { width: 17px; height: 17px; flex-shrink: 0; margin-top: 3px; accent-color: #7c3aed; }
+.visiting-panel .catalog-pool-choice small { display: block; color: #655b7c; font-size: 11px; line-height: 1.8; margin-top: 6px; font-weight: 400; }
+.visiting-new-class { padding: 18px; border: 1px solid #ddd6fe; border-radius: 10px; background: #faf7ff; }
+.visiting-new-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 15px; margin-top: 15px; }
+.visiting-panel .catalog-table-wrap { margin-bottom: 13px; }
+.visiting-panel .catalog-table-wrap input { min-width: 95px; }
+.visiting-panel .catalog-table-wrap select { min-width: 130px; }
+.visiting-preview { margin-top: 24px; padding: 20px; border: 1px solid #c9b5f2; border-radius: 11px; background: #fbf9ff; }
+.visiting-preview > p { font-size: 12px; }
+.visiting-preview-sessions { margin-top: 14px; padding: 12px; border: 1px solid #e4dcf5; border-radius: 8px; background: white; }
+.visiting-preview-sessions summary { font-size: 12px; font-weight: 650; cursor: pointer; }
+.visiting-subjects { display: grid; gap: 10px; max-height: 230px; overflow: auto; }
+.visiting-panel .visiting-subjects .catalog-checkbox { display: flex; flex-direction: row; align-items: start; gap: 9px; }
+.visiting-panel .visiting-subjects .catalog-checkbox input { width: 17px; height: 17px; margin-top: 3px; }
+.visiting-panel details:not(.visiting-preview-sessions) { margin: 15px 0; }
+@media (max-width:700px) {
+  .visiting-fields, .visiting-class-grid, .visiting-new-grid { grid-template-columns: minmax(0,1fr); }
+  .visiting-preview { padding: 14px; }
+  .visiting-panel .catalog-actions .button { width: 100%; justify-content: center; }
+  .visiting-panel .catalog-section-heading > .button { width: 100%; justify-content: center; }
+}

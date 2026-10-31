@@ -64,15 +64,28 @@ export function layoutLessons(lessons) {
 }
 
 export async function api(path, options = {}) {
+  return requestApi('/api/schedule', path, options);
+}
+
+export async function catalogApi(path = '', options = {}) {
+  return requestApi('/api/admin/institutions', path, options);
+}
+
+export async function planApi(path = '', options = {}) {
+  return requestApi('/api/admin/scheduling-plans', path, options);
+}
+
+async function requestApi(root, path, options) {
   const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) 
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '') 
     : '';
-  const fullUrl = `${baseUrl}/api/schedule${path.startsWith('/') ? path : `/${path}`}`;
+  const fullUrl = `${baseUrl}${root}${path ? (path.startsWith('/') ? path : `/${path}`) : ''}`;
+  const publicAuth = root === '/api/schedule' && path === '/auth/login';
   let response;
   try { 
     const headers = new Headers(options.headers);
     const token = getAccessToken();
-    if (token && !['/auth/login', '/auth/register'].includes(path)) headers.set('Authorization', `Bearer ${token}`);
+    if (token && !publicAuth) headers.set('Authorization', `Bearer ${token}`);
     response = await fetch(fullUrl, { ...options, headers });
   } catch (error) {
     if (error.name === 'AbortError') throw error;
@@ -86,7 +99,7 @@ export async function api(path, options = {}) {
     /* Tránh lỗi nếu server trả text rỗng */ 
   }
   if (!response.ok) {
-    if (response.status === 401 && !['/auth/login', '/auth/register'].includes(path)) {
+    if (response.status === 401 && !publicAuth) {
       setAccessToken('');
       globalThis.window?.dispatchEvent(new Event('campus-auth-expired'));
     }
@@ -94,6 +107,7 @@ export async function api(path, options = {}) {
     const messages = { 400: 'Dữ liệu không hợp lệ. Kiểm tra thông tin đã nhập.', 401: 'Phiên đăng nhập hết hạn hoặc thông tin đăng nhập không đúng.', 403: 'Tài khoản không có quyền thực hiện thao tác này.', 404: 'Không tìm thấy hồ sơ hoặc lịch được yêu cầu.', 409: 'Dữ liệu xung đột với thông tin hiện có. Kiểm tra lại trước khi gửi.', 413: 'File vượt giới hạn dung lượng cho phép.', 500: 'Máy chủ gặp lỗi. Thử lại sau; nếu vừa lưu lịch, hãy tải lại lịch để kiểm tra.' };
     const error = new Error(detail ? String(detail) : messages[response.status] || `Không thực hiện được yêu cầu (HTTP ${response.status}).`);
     error.status = response.status;
+    error.conflicts = Array.isArray(data?.conflicts) ? data.conflicts : [];
     throw error;
   }
   if (!data || typeof data !== 'object') throw new Error('Máy chủ trả dữ liệu không hợp lệ. Kiểm tra cấu hình địa chỉ API.');

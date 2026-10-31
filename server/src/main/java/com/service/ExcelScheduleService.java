@@ -385,7 +385,7 @@ public class ExcelScheduleService {
     /**
      * Cấu hình chuẩn mặc định (Khung 12h-13h gán là Tiết 6)
      */
-    private List<PeriodTimeDTO> getDefault12PeriodsWithNoonSlot6() {
+    static List<PeriodTimeDTO> getDefault12PeriodsWithNoonSlot6() {
         return List.of(
                 new PeriodTimeDTO(1, LocalTime.of(7, 0), LocalTime.of(7, 50)),
                 new PeriodTimeDTO(2, LocalTime.of(8, 0), LocalTime.of(8, 50)),
@@ -463,11 +463,11 @@ public class ExcelScheduleService {
             }
             if (!importedRooms.isEmpty()) {
                 importedRooms.sort(Comparator.comparingInt(Room::getCapacity));
-                return importedRooms;
+                return importedRooms.stream().filter(Room::isActive).toList();
             }
         }
 
-        List<Room> dbRooms = roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolCode);
+        List<Room> dbRooms = roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolCode).stream().filter(Room::isActive).toList();
         if (!dbRooms.isEmpty()) {
             return dbRooms;
         }

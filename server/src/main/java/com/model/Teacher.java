@@ -28,6 +28,10 @@ public class Teacher {
     @Column(name = "password")
     private String password;
 
+    @Column(name = "auto_provisioned", nullable = false)
+    @Builder.Default
+    private boolean autoProvisioned = false;
+
     @Column(name = "role", length = 20)
     @Builder.Default
     private String role = "TEACHER"; // TEACHER hoặc ADMIN

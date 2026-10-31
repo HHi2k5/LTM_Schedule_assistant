@@ -235,7 +235,7 @@ class AutoScheduleServiceTest {
     }
 
     private AutoScheduleService service(TeacherRepository teachers, ScheduleService saves) {
-        return new AutoScheduleService(teachers, mock(RoomRepository.class), saves, mock(ScheduleWriteLock.class));
+        return new AutoScheduleService(teachers, mock(RoomRepository.class), saves, mock(ScheduleWriteLock.class), mock(com.repository.SchedulingPlanRepository.class), mock(PublishedBusyReservations.class));
     }
 
     private SchoolWideScheduleRequest practiceRequest(int classes, int size, int totalWeeks, int startWeek) {
@@ -292,7 +292,7 @@ class AutoScheduleServiceTest {
         var theory = new Room(); theory.setRoomCode("101-A2"); theory.setCapacity(60); theory.setLab(false); theory.setSchoolCode("PTIT");
         var lab = new Room(); lab.setRoomCode("LAB-A2"); lab.setCapacity(30); lab.setLab(true); lab.setSchoolCode("PTIT");
         when(rooms.findBySchoolCodeOrderByCapacityAsc("PTIT")).thenReturn(List.of(theory, lab));
-        var service = new AutoScheduleService(teachers, rooms, mock(ScheduleService.class), mock(ScheduleWriteLock.class));
+        var service = new AutoScheduleService(teachers, rooms, mock(ScheduleService.class), mock(ScheduleWriteLock.class), mock(com.repository.SchedulingPlanRepository.class), mock(PublishedBusyReservations.class));
         List<PeriodTimeDTO> periods = new ArrayList<>();
         for (int p = 1; p <= 10; p++) periods.add(new PeriodTimeDTO(p, LocalTime.of(6 + p, 0), LocalTime.of(6 + p, 50)));
         var request = SchoolWideScheduleRequest.builder().semesterStartDate(LocalDate.of(2026, 8, 10))

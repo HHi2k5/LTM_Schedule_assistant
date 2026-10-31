@@ -9,16 +9,33 @@ import java.util.List;
 
 public interface TeacherRepository extends JpaRepository<Teacher, String> {
     
-    // Nạp kèm toàn bộ trường, tiết và môn học để tránh lỗi N+1
-    @Query("SELECT DISTINCT t FROM Teacher t " +
-           "LEFT JOIN FETCH t.schools s " +
-           "LEFT JOIN FETCH s.periods " +
-           "LEFT JOIN FETCH s.courses " +
-           "WHERE t.teacherId = :teacherId")
-    Optional<Teacher> findTeacherWithFullSchedule(@Param("teacherId") String teacherId);
+    // Fetch the list of schools separately from its two sets. Joining all three
+    // collections duplicates schools once per period/course combination.
+    @Query("SELECT DISTINCT t FROM Teacher t LEFT JOIN FETCH t.schools WHERE t.teacherId = :teacherId")
+    Optional<Teacher> findTeacherWithSchools(@Param("teacherId") String teacherId);
+
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    default Optional<Teacher> findTeacherWithFullSchedule(String teacherId) {
+        var result = findTeacherWithSchools(teacherId);
+        result.ifPresent(TeacherRepository::initializeSchedule);
+        return result;
+    }
     Optional<Teacher> findByUsername(String username);
+    Optional<Teacher> findByUsernameIgnoreCase(String username);
+    Optional<Teacher> findByTeacherIdIgnoreCase(String teacherId);
     boolean existsByUsername(String username);
 
-    @Query("SELECT DISTINCT t FROM Teacher t LEFT JOIN FETCH t.schools s LEFT JOIN FETCH s.periods LEFT JOIN FETCH s.courses")
-    List<Teacher> findAllWithFullSchedule();
+    @Query("SELECT DISTINCT t FROM Teacher t LEFT JOIN FETCH t.schools")
+    List<Teacher> findAllWithSchools();
+
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    default List<Teacher> findAllWithFullSchedule() {
+        var result = findAllWithSchools();
+        result.forEach(TeacherRepository::initializeSchedule);
+        return result;
+    }
+
+    private static void initializeSchedule(Teacher teacher) {
+        teacher.getSchools().forEach(school -> { school.getPeriods().size(); school.getCourses().size(); });
+    }
 }

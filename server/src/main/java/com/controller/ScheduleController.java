@@ -95,7 +95,7 @@ public class ScheduleController {
     // 4. Lấy danh sách toàn bộ phòng học đang lưu trong MySQL (sắp xếp theo sức chứa tăng dần)
     @GetMapping("/rooms")
     public ResponseEntity<List<Room>> getAllRooms(@RequestParam(defaultValue = "PTIT") String schoolId) {
-        return ResponseEntity.ok(roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolId));
+        return ResponseEntity.ok(roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolId).stream().filter(Room::isActive).toList());
     }
 
     // 5. Client lấy kết quả thời khóa biểu theo tuần
@@ -107,13 +107,7 @@ public class ScheduleController {
         return ResponseEntity.ok(scheduleService.getWeeklySchedule(teacherId, weekIndex));
     }
 
-    // 6. Đăng ký tài khoản
-    @PostMapping("/auth/register")
-    public ResponseEntity<?> register(@RequestBody com.dto.AuthRequest request) {
-        return ResponseEntity.ok(authService.register(request));
-    }
-
-    // 7. Đăng nhập hệ thống
+    // Đăng nhập bằng tài khoản được cấp.
     @PostMapping("/auth/login")
     public ResponseEntity<?> login(@RequestBody com.dto.AuthRequest request) {
         return ResponseEntity.ok(authService.login(request));

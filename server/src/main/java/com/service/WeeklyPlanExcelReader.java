@@ -16,6 +16,17 @@ final class WeeklyPlanExcelReader {
 
     List<CourseDemandDTO> read(MultipartFile plan, MultipartFile teacherFile) throws Exception {
         var teachers = teachers(teacherFile);
+        var courses = readPlan(plan);
+        for (var course : courses) {
+            var candidates = teachers.get(course.getCourseCode() + ":" + course.getCohort());
+            if (candidates == null || candidates.isEmpty()) throw new IllegalArgumentException("Kế hoạch dòng " + course.getStt()
+                    + ": không có GV cho môn/khóa " + course.getCourseCode() + "/" + course.getCohort());
+            course.setTeachers(candidates);
+        }
+        return courses;
+    }
+
+    List<CourseDemandDTO> readPlan(MultipartFile plan) throws Exception {
         var courses = new ArrayList<CourseDemandDTO>();
         validateFile(plan, "Kế hoạch");
         try (var input = plan.getInputStream(); var workbook = new XSSFWorkbook(input)) {
@@ -27,8 +38,6 @@ final class WeeklyPlanExcelReader {
                 String label = "Kế hoạch dòng " + (i + 1) + ": ";
                 String code = required(table, row, "ma mon", label).toUpperCase(Locale.ROOT);
                 String cohort = required(table, row, "khoa", label);
-                var candidates = teachers.get(code + ":" + cohort);
-                if (candidates == null || candidates.isEmpty()) throw new IllegalArgumentException(label + "không có GV cho môn/khóa " + code + "/" + cohort);
                 var course = CourseDemandDTO.builder().stt(String.valueOf(i + 1)).courseCode(code)
                         .courseName(required(table, row, "ten hoc phan", label)).cohort(cohort)
                         .classSize(integer(table, row, "si so", 1, 1000, label))
@@ -37,8 +46,7 @@ final class WeeklyPlanExcelReader {
                         .theoryPeriods(integer(table, row, "tong tiet lt", 0, 1000, label))
                         .practicePeriods(integer(table, row, "tong tiet th", 0, 1000, label))
                         .studyStartDate(date(table, row, "tuan bat dau", label))
-                        .studyEndDate(date(table, row, "tuan ket thuc", label))
-                        .teachers(candidates).build();
+                        .studyEndDate(date(table, row, "tuan ket thuc", label)).build();
                 courses.add(course);
                 if (courses.size() > 5000) throw new IllegalArgumentException("Kế hoạch tối đa 5000 dòng.");
             }

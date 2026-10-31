@@ -17,7 +17,21 @@ public class AutoScheduleService {
     private final RoomRepository roomRepository;
     private final ScheduleService scheduleService;
     private final ScheduleWriteLock writeLock;
+    private final com.repository.SchedulingPlanRepository managedPlans;
+    private final PublishedBusyReservations publishedBusy;
     private static final int[] DEFAULT_START_PERIODS = {1, 4, 7, 10};
+
+    public void requireSchoolWideWriteAllowed(String schoolCode) {
+        String code = schoolCode == null ? null : schoolCode.strip().toUpperCase(Locale.ROOT);
+        if (managedPlans.existsByInstitution_SchoolCodeAndConfirmedVersionIsNotNull(code))
+            throw new IllegalArgumentException("Trường đã có bản lịch khoa được xác nhận. Hãy sửa bản nháp của khoa; không thay toàn trường qua luồng cũ.");
+    }
+
+    @Transactional(readOnly = true)
+    public AutoScheduleResponse previewScheduleWithRooms(SchoolWideScheduleRequest request, List<Room> availableRooms) {
+        if (request == null || request.getSchedulingPlanId() == null || !request.isPreviewOnly()) throw new IllegalArgumentException("Thiếu phạm vi bản lịch nháp.");
+        return new WeeklyScheduleEngine(teacherRepository, scheduleService, publishedBusy.forRequest(request)).generate(request, availableRooms);
+    }
 
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse generateSchoolWideSchedule(SchoolWideScheduleRequest request) {
@@ -28,16 +42,26 @@ public class AutoScheduleService {
 
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse generateScheduleWithRooms(SchoolWideScheduleRequest request, List<Room> availableRooms) {
+        if (request != null && (request.getSchedulingPlanId() != null || request.isPreviewOnly())) throw new IllegalArgumentException("Bản lịch khoa phải dùng luồng lưu nháp và xác nhận riêng.");
+        writeLock.acquire();
+        if (request != null && request.getSchedulingPlanId() == null && request.getCourses() != null)
+            request.getCourses().stream().filter(Objects::nonNull).flatMap(c -> c.getTeachers() == null ? java.util.stream.Stream.empty() : c.getTeachers().stream()).forEach(candidate -> {
+                if (candidate != null && candidate.getTeacherId() != null) {
+                    String code = candidate.getTeacherId().strip();
+                    var existing = teacherRepository.findByUsernameIgnoreCase(code).filter(Teacher::isAutoProvisioned)
+                            .or(() -> teacherRepository.findByTeacherIdIgnoreCase(code));
+                    candidate.setTeacherId(existing.map(Teacher::getTeacherId).orElseGet(() -> code.toUpperCase(Locale.ROOT)));
+                }
+            });
+        if (request != null && request.getTargetSchool() != null) requireSchoolWideWriteAllowed(request.getTargetSchool().getSchoolId());
         if (request != null && request.getCourses() != null && request.getCourses().stream().anyMatch(c -> c != null
                 && (c.getStudyStartDate() != null || c.getStudyEndDate() != null || c.getTheoryPeriods() != null || c.getPracticePeriods() != null))) {
-            writeLock.acquire();
-            return new WeeklyScheduleEngine(teacherRepository, scheduleService).generate(request, availableRooms);
+            return new WeeklyScheduleEngine(teacherRepository, scheduleService, publishedBusy.forRequest(request)).generate(request, availableRooms);
         }
         validate(request);
-        writeLock.acquire();
         var periods = ScheduleValidation.periods(request.getTargetSchool().getPeriods());
         String schoolId = request.getTargetSchool().getSchoolId();
-        var rooms = availableRooms.stream().filter(r -> schoolId.equals(r.getSchoolCode()))
+        var rooms = availableRooms.stream().filter(r -> r.isActive() && schoolId.equals(r.getSchoolCode()))
                 .sorted(Comparator.comparingInt(Room::getCapacity)).toList();
         var replacedTeachers = new HashSet<String>();
         for (var course : request.getCourses()) {
@@ -128,7 +152,7 @@ public class AutoScheduleService {
         }
         return AutoScheduleResponse.builder().schoolId(schoolId).schoolName(request.getTargetSchool().getSchoolName())
                 .semesterStartDate(request.getSemesterStartDate()).periods(request.getTargetSchool().getPeriods())
-                .status(saved ? "SUCCESS" : "NOT_SAVED").saved(saved)
+                .status(saved ? "SUCCESS" : "NOT_SAVED").saved(saved).complete(saved)
                 .message(saved ? "Đã xếp và lưu đầy đủ lịch toàn trường." : "Chưa lưu: không xếp được đầy đủ các lớp. Lịch cũ được giữ nguyên.")
                 .totalRoomsAvailable(rooms.size()).totalClassesScheduled(result.size()).scheduledClasses(result).unscheduledWarnings(warnings).build();
     }
@@ -180,10 +204,13 @@ public class AutoScheduleService {
     private record Placement(Room room, int day, int start) {}
     private record PracticeDemand(TeacherCandidateDTO teacher, CourseDemandDTO course, String cohort, String group,
             int size, int count, int firstWeek, Set<Integer> days) {}
-    private record Reservation(String teacher, String school, String room, LocalDate date, LocalTime start, LocalTime end, boolean practice) {}
+    private record Reservation(String teacher, String school, String room, LocalDate date, LocalTime start, LocalTime end, boolean practice, boolean busyOnly) {
+        Reservation(String teacher, String school, String room, LocalDate date, LocalTime start, LocalTime end, boolean practice) { this(teacher, school, room, date, start, end, practice, false); }
+    }
 
     private List<Reservation> existingReservations(SchoolWideScheduleRequest request, Set<String> replaced) {
         var reservations = new ArrayList<Reservation>();
+        publishedBusy.forRequest(request).forEach(b -> reservations.add(new Reservation(b.teacher(), "", null, b.date(), b.start(), b.end(), false, true)));
         for (var teacher : teacherRepository.findAllWithFullSchedule()) {
             if (replaced.contains(teacher.getTeacherId()) && !teacher.getSchools().isEmpty()
                     && !request.getSemesterStartDate().equals(teacher.getSemesterStartDate()))
@@ -228,7 +255,7 @@ public class AutoScheduleService {
                         boolean sameTeacher = teacher.getTeacherId().equals(busy.teacher());
                         boolean overlappingHours = begin.isBefore(busy.end()) && busy.start().isBefore(end);
                         boolean sameRoom = request.getTargetSchool().getSchoolId().equals(busy.school()) && room.getRoomCode().equals(busy.room());
-                        if (date.equals(busy.date()) && ((sameTeacher && lab != busy.practice())
+                        if (date.equals(busy.date()) && ((sameTeacher && !busy.busyOnly() && lab != busy.practice())
                                 || (overlappingHours && (sameTeacher || sameRoom)))) {
                             free = false; break;
                         }

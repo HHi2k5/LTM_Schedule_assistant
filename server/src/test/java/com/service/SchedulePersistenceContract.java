@@ -25,7 +25,6 @@ abstract class SchedulePersistenceContract {
     @Autowired PlatformTransactionManager manager;
     @Autowired ScheduleWriteLock writeLock;
     @Autowired ExcelScheduleService excel;
-    @Autowired AuthService auth;
 
     static void admin() {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(new AccountPrincipal("QL01", "manager", "ADMIN"), null, List.of()));
@@ -111,21 +110,6 @@ abstract class SchedulePersistenceContract {
         assertTrue(sawWrite.get(), "the failure must happen after a real room INSERT");
         assertEquals(0, rooms.count(), "room INSERT must roll back");
         assertEquals(0, teachers.count(), "no account from another test may remain");
-    }
-
-    @Test void concurrentRegistrationCannotCreateDuplicateUsernames() throws Exception {
-        var pool = Executors.newFixedThreadPool(2); var start = new CountDownLatch(1);
-        try {
-            var futures = new ArrayList<Future<Boolean>>();
-            for (int n = 0; n < 2; n++) futures.add(pool.submit(() -> {
-                start.await(); var request = new AuthRequest(); request.setUsername("same-user"); request.setPassword("password123");
-                try { auth.register(request); return true; }
-                catch (IllegalArgumentException | org.springframework.dao.DataIntegrityViolationException e) { return false; }
-            }));
-            start.countDown();
-            int success = 0; for (var future : futures) if (future.get(20, TimeUnit.SECONDS)) success++;
-            assertEquals(1, success); assertEquals(1, teachers.count());
-        } finally { pool.shutdownNow(); assertTrue(pool.awaitTermination(15, TimeUnit.SECONDS)); }
     }
 
     @Test void newThreeFileWorkflowPersistsEveryGroupsFullHoursAndReloadsActualWeeklyLessons() throws Exception {

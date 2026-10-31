@@ -11,6 +11,8 @@ import java.time.LocalTime;
 @AllArgsConstructor
 @Builder
 public class TeachingCourseDTO {
+    private Long schedulingPlanId;
+    private Long schedulingEntryId;
     @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
     private String sourceType;
     @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)

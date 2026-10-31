@@ -14,6 +14,7 @@ import java.util.*;
 final class WeeklyScheduleEngine {
     private final TeacherRepository teachers;
     private final ScheduleService schedules;
+    private final List<Reservation> busySlots;
     private final WeeklyReservations occupied = new WeeklyReservations();
     private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
     private SchoolWideScheduleRequest request;
@@ -33,11 +34,16 @@ final class WeeklyScheduleEngine {
     }
 
     WeeklyScheduleEngine(TeacherRepository teachers, ScheduleService schedules) {
-        this.teachers = teachers;
-        this.schedules = schedules;
+        this(teachers, schedules, List.of());
     }
 
-    private record Unit(CourseDemandDTO course, String id, String parent, String label, String sub,
+    WeeklyScheduleEngine(TeacherRepository teachers, ScheduleService schedules, List<Reservation> busySlots) {
+        this.teachers = teachers;
+        this.schedules = schedules;
+        this.busySlots = busySlots;
+    }
+
+    private record Unit(CourseDemandDTO course, int demandIndex, String id, String parent, String label, String sub,
                         int size, boolean practice, int required) {
         String type() { return practice ? "PRACTICE" : "THEORY"; }
         Bucket bucket() { return new Bucket(course.getCourseCode(), course.getCohort(), type()); }
@@ -51,7 +57,7 @@ final class WeeklyScheduleEngine {
         request = input;
         validate();
         periods = ScheduleValidation.periods(request.getTargetSchool().getPeriods());
-        rooms = available.stream().filter(r -> r != null && r.getCapacity() > 0 && r.getRoomCode() != null && !r.getRoomCode().isBlank()
+        rooms = available.stream().filter(r -> r != null && r.isActive() && r.getCapacity() > 0 && r.getRoomCode() != null && !r.getRoomCode().isBlank()
                         && request.getTargetSchool().getSchoolId().equals(r.getSchoolCode()))
                 .sorted(Comparator.comparingInt(Room::getCapacity).thenComparing(Room::getRoomCode)).toList();
         loadReservations();
@@ -112,7 +118,7 @@ final class WeeklyScheduleEngine {
                 names.put(owner.getTeacherId(), owner.getTeacherName());
                 for (var session : chosen) record(unit, owner, session, slots, byTeacher);
             }
-            workloads.add(ClassWorkloadDTO.builder().classId(unit.id()).courseCode(unit.course().getCourseCode())
+            workloads.add(ClassWorkloadDTO.builder().demandIndex(unit.demandIndex()).classId(unit.id()).parentClassId(unit.parent()).studentCount(unit.size()).courseCode(unit.course().getCourseCode())
                     .cohort(unit.course().getCohort()).classGroup(unit.label()).sessionType(unit.type())
                     .teacherId(owner == null ? null : owner.getTeacherId()).requiredPeriods(unit.required())
                     .scheduledPeriods(placed).missingPeriods(unit.required() - placed).build());
@@ -128,14 +134,15 @@ final class WeeklyScheduleEngine {
                         + (probes >= probeLimit ? " Đã đạt giới hạn tìm kiếm riêng của lớp/nhóm này; các lớp/nhóm khác vẫn được xét độc lập." : ""));
             }
         }
-        boolean saved = warnings.isEmpty() && !slots.isEmpty();
+        boolean complete = warnings.isEmpty() && !slots.isEmpty();
+        boolean saved = complete && !request.isPreviewOnly();
         if (saved) schedules.replaceWeeklyGenerated(request, byTeacher, names);
         int completed = (int) workloads.stream().filter(w -> w.getMissingPeriods() == 0).count();
         return AutoScheduleResponse.builder().schoolId(request.getTargetSchool().getSchoolId())
                 .schoolName(request.getTargetSchool().getSchoolName()).semesterStartDate(request.getSemesterStartDate())
-                .periods(request.getTargetSchool().getPeriods()).saved(saved).status(saved ? "SUCCESS" : "NOT_SAVED")
+                .periods(request.getTargetSchool().getPeriods()).saved(saved).complete(complete).status(saved ? "SUCCESS" : "NOT_SAVED")
                 .message(saved ? "Đã xếp đủ tiết LT/TH theo đề cương và lưu lịch từng tuần."
-                        : "Chưa lưu: còn thiếu khối lượng; lịch hiện có được giữ nguyên.")
+                        : complete ? "Đã tính đủ lịch nháp; chưa cập nhật lịch giảng viên." : "Chưa lưu: còn thiếu khối lượng; lịch hiện có được giữ nguyên.")
                 .scheduledClasses(slots).classWorkloads(workloads).teacherAllocations(new ArrayList<>(allocations.values()))
                 .totalClassesScheduled(completed).totalLessonsScheduled(slots.stream().mapToInt(s -> (int) s.getWeekSchedule().chars().filter(c -> c == '1').count()).sum()).totalRoomsAvailable(rooms.size())
                 .unscheduledWarnings(warnings).build();
@@ -208,15 +215,16 @@ final class WeeklyScheduleEngine {
         for (var c : request.getCourses()) {
             row++;
             for (int n = 0; n < c.getTotalClassesToOpen(); n++) {
-                String parent = c.getCourseCode() + ":" + c.getCohort() + ":" + row + ":" + (n + 1);
+                String parent = (request.getSchedulingPlanId() == null ? "" : "PLAN_" + request.getSchedulingPlanId() + ":")
+                        + c.getCourseCode() + ":" + c.getCohort() + ":" + row + ":" + (n + 1);
                 String label = "Lớp %02d".formatted(sequence.merge(c.getCourseCode() + ":" + c.getCohort(), 1, Integer::sum));
-                if (c.getTheoryPeriods() > 0) result.add(new Unit(c, parent + ":LT", parent, label, "Cả lớp", c.getClassSize(), false, c.getTheoryPeriods()));
+                if (c.getTheoryPeriods() > 0) result.add(new Unit(c, row, parent + ":LT", parent, label, "Cả lớp", c.getClassSize(), false, c.getTheoryPeriods()));
                 if (c.getPracticePeriods() > 0) {
                     // With no LAB, retain one demand so placement reports the missing room.
                     int groupCapacity = labCapacity > 0 ? labCapacity : c.getClassSize();
                     if (c.getPracticeGroupSize() != null) groupCapacity = Math.min(groupCapacity, c.getPracticeGroupSize());
                     int groups = (c.getClassSize() + groupCapacity - 1) / groupCapacity;
-                    for (int g = 1; g <= groups; g++) result.add(new Unit(c, parent + ":TH:" + g, parent,
+                    for (int g = 1; g <= groups; g++) result.add(new Unit(c, row, parent + ":TH:" + g, parent,
                             label + " - Tổ " + g, "Tổ " + g, c.getClassSize() / groups + (g <= c.getClassSize() % groups ? 1 : 0), true, c.getPracticePeriods()));
                 }
                 if (result.size() > 5000) throw new IllegalArgumentException("Tối đa 5000 lớp/nhóm sau khi tách; hãy chia nhỏ kế hoạch.");
@@ -346,17 +354,19 @@ final class WeeklyScheduleEngine {
     }
 
     private void loadReservations() {
+        busySlots.forEach(occupied::add);
         var active = new HashSet<String>();
         request.getCourses().forEach(c -> c.getTeachers().forEach(t -> active.add(t.getTeacherId())));
         for (var teacher : teachers.findAllWithFullSchedule()) {
-            if (active.contains(teacher.getTeacherId()) && !teacher.getSchools().isEmpty()
+            if (active.contains(teacher.getTeacherId()) && (request.getSchedulingPlanId() == null ? !teacher.getSchools().isEmpty() : teacher.getSchools().stream().anyMatch(s -> !s.getCourses().isEmpty()))
                     && !request.getSemesterStartDate().equals(teacher.getSemesterStartDate()))
                 throw new IllegalArgumentException("Mốc tuần của " + teacher.getTeacherId() + " khác lịch đã lưu; cần đối chiếu trước.");
             for (var school : teacher.getSchools()) {
                 var hours = school.getCourses().isEmpty() ? Map.<Integer, PeriodTimeDTO>of() : ScheduleValidation.periods(school.getPeriods().stream()
                         .map(p -> new PeriodTimeDTO(p.getPeriodNumber(), p.getStartTime(), p.getEndTime())).toList());
                 for (var c : school.getCourses()) {
-                    if (request.getTargetSchool().getSchoolId().equals(school.getSchoolCode()) && "WEEKLY_AUTO".equals(c.getSourceType())) continue;
+                    if (request.getSchedulingPlanId() != null && request.getSchedulingPlanId().equals(c.getSchedulingPlanId())) continue;
+                    if (!request.isPreviewOnly() && request.getSchedulingPlanId() == null && request.getTargetSchool().getSchoolId().equals(school.getSchoolCode()) && "WEEKLY_AUTO".equals(c.getSourceType())) continue;
                     if (!ScheduleValidation.hasPeriods(hours, c.getStartPeriod(), c.getNumPeriods())) throw new IllegalArgumentException("Lịch hiện hữu thiếu bảng tiết.");
                     ScheduleValidation.monday(teacher.getSemesterStartDate());
                     if (c.getWeekSchedule() == null) throw new IllegalArgumentException("Lịch hiện hữu thiếu chuỗi tuần.");
@@ -396,7 +406,7 @@ final class WeeklyScheduleEngine {
         String snapshot;
         try { snapshot = json.writeValueAsString(unit.course()); }
         catch (Exception e) { throw new IllegalStateException("Không thể lưu dữ liệu kế hoạch.", e); }
-        slots.add(GeneratedClassSlot.builder().classId(unit.id()).parentClassId(unit.parent())
+        slots.add(GeneratedClassSlot.builder().demandIndex(unit.demandIndex()).classId(unit.id()).parentClassId(unit.parent())
                 .studyStartDate(unit.course().getStudyStartDate()).studyEndDate(unit.course().getStudyEndDate())
                 .baseCourseName(unit.course().getCourseName()).credits(unit.course().getCredits()).courseCode(unit.course().getCourseCode())
                 .courseName(display).cohort(unit.course().getCohort()).classGroup(unit.label()).subGroup(unit.sub()).sessionType(unit.type())

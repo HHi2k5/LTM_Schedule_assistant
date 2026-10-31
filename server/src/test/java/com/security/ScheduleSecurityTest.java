@@ -52,6 +52,29 @@ class ScheduleSecurityTest {
         verifyNoInteractions(schedules);
     }
 
+    @Test void selfRegistrationIsDeniedForAnonymousTeachersAndAdminsWithoutInvokingAuth() throws Exception {
+        String body = "{\"username\":\"NEWGV\",\"password\":\"password123\",\"role\":\"ADMIN\"}";
+        mvc.perform(post("/api/schedule/auth/register").contentType("application/json").content(body)).andExpect(status().isUnauthorized());
+        for (String token : java.util.List.of("teacher-token", "admin-token"))
+            mvc.perform(post("/api/schedule/auth/register").header("Authorization", "Bearer " + token).contentType("application/json").content(body)).andExpect(status().isForbidden());
+        verifyNoInteractions(auth);
+    }
+
+    @Test void registrationAliasesAndOtherMethodsCannotBypassTheClosedEndpoint() throws Exception {
+        for (String path : java.util.List.of("/api/schedule/auth/register/", "/api/schedule/auth/register/anything", "/api/schedule/auth/REGISTER"))
+            mvc.perform(post(path).header("Authorization", "Bearer admin-token").contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/schedule/auth/register").header("Authorization", "Bearer admin-token")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/schedule/auth/register").header("Authorization", "Bearer admin-token").contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        verifyNoInteractions(auth);
+    }
+
+    @Test void issuedAccountLoginRemainsPublicAndDoesNotAcceptClientSuppliedPrivileges() throws Exception {
+        when(auth.login(any())).thenReturn(com.dto.AuthResponse.builder().status("SUCCESS").teacherId("GV01").username("GV01").role("TEACHER").accessToken("issued-token").build());
+        mvc.perform(post("/api/schedule/auth/login").contentType("application/json").content("{\"username\":\"GV01\",\"password\":\"nguyenvananGV01\",\"role\":\"ADMIN\",\"teacherId\":\"QL01\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("TEACHER")).andExpect(jsonPath("$.teacherId").value("GV01"));
+        verify(auth).login(argThat(r -> r.getUsername().equals("GV01") && r.getPassword().equals("nguyenvananGV01")));
+    }
+
     @Test void teacherCannotScheduleEvenWithForgedAdminBody() throws Exception {
         mvc.perform(multipart("/api/schedule/auto-generate-excel").file(file())
                 .param("role", "ADMIN").header("Authorization", "Bearer teacher-token"))

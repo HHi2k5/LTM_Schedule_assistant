@@ -34,8 +34,8 @@ function integer(value, min, max, field) {
 function required(value, max, field) {
   if (!String(value ?? '').trim() || String(value).trim().length > max) throw new Error(`${field}: cần 1–${max} ký tự.`);
 }
-export function validateManual(plans, teachers, rooms, semesterStart) {
-  if (!plans.length || !teachers.length || !rooms.length) throw new Error('Cả ba bảng cần ít nhất một dòng.');
+export function validatePlans(plans, semesterStart) {
+  if (!Array.isArray(plans) || !plans.length || plans.length > 5000) throw new Error('Kế hoạch cần từ 1 đến 5000 dòng.');
   plans.forEach((row, index) => {
     const label = `Kế hoạch, dòng ${index + 1}`;
     required(row.courseCode, 50, `${label}, mã môn`); required(row.courseName, 180, `${label}, tên môn`); required(row.cohort, 50, `${label}, khóa`);
@@ -45,6 +45,10 @@ export function validateManual(plans, teachers, rooms, semesterStart) {
     if (!validDate(row.studyStartDate) || !validDate(row.studyEndDate) || row.studyEndDate < row.studyStartDate) throw new Error(`${label}: ngày bắt đầu/kết thúc không hợp lệ.`);
     if (semesterStart && (row.studyStartDate < semesterStart || (Date.parse(row.studyEndDate) - Date.parse(semesterStart)) / 86400000 >= 700)) throw new Error(`${label}: khoảng học phải nằm trong 100 tuần tính từ mốc tuần 1.`);
   });
+}
+export function validateManual(plans, teachers, rooms, semesterStart) {
+  if (!plans.length || !teachers.length || !rooms.length) throw new Error('Cả ba bảng cần ít nhất một dòng.');
+  validatePlans(plans, semesterStart);
   teachers.forEach((row, index) => {
     const label = `Giảng viên, dòng ${index + 1}`;
     required(row.courseCode,50,`${label}, mã môn`); required(row.courseName,255,`${label}, tên môn`); required(row.teacherId,50,`${label}, mã GV`); required(row.teacherName,100,`${label}, họ tên`); required(row.cohort,50,`${label}, khóa`);

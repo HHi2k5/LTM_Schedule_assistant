@@ -9,6 +9,10 @@ import lombok.*;
 @NoArgsConstructor @AllArgsConstructor
 @Builder
 public class TeachingCourse {
+    @Column(name = "scheduling_plan_id")
+    private Long schedulingPlanId;
+    @Column(name = "scheduling_entry_id", unique = true)
+    private Long schedulingEntryId;
     @Column(name = "source_type", length = 20)
     private String sourceType;
     @Column(name = "schedule_class_id", length = 255)

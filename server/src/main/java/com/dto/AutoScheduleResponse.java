@@ -11,10 +11,12 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class AutoScheduleResponse {
+    private CatalogSchedulingDTO.RunContext catalogContext;
     private List<TeacherAllocationDTO> teacherAllocations;
     private List<ClassWorkloadDTO> classWorkloads;
     private int totalLessonsScheduled;
     private boolean saved;
+    private boolean complete;
     private String schoolId;
     private String schoolName;
     private java.time.LocalDate semesterStartDate;

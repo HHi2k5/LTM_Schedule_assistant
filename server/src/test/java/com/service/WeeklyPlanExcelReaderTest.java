@@ -9,6 +9,11 @@ import java.time.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WeeklyPlanExcelReaderTest {
+    @Test void planCanBeReadIndependentlyOfTeacherSource() throws Exception {
+        var course = new WeeklyPlanExcelReader().readPlan(plan()).getFirst();
+        assertEquals("NET", course.getCourseCode()); assertEquals(30, course.getTheoryPeriods());
+        assertNull(course.getTeachers());
+    }
     static final Object[] HEADERS = {"STT", "Mã môn", "Tên học phần", "Sĩ số", "Khóa", "Số lớp mở",
             "Tuần bắt đầu — từ ngày", "Tuần kết thúc — đến ngày", "Số tín chỉ", "Tổng tiết LT", "Tổng tiết TH"};
     static final Object[] TEACHERS = {"Mã môn", "Tên học phần", "Khóa", "Mã GV", "Họ tên giảng viên", "Trọng số LT", "Trọng số TH"};

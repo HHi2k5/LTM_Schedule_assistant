@@ -65,6 +65,13 @@ export function scheduledWorkbook(result) {
     .forEach(period => periods.addRow([period.period, clock(period.start), clock(period.end)]));
   periods.columns.forEach(column => { column.width = 16; });
   const sheets = [courses, periods];
+  if (result.catalogContext?.lecturers?.length) {
+    const identities = workbook.addWorksheet('DanhTinhGiangVien');
+    identities.addRow(['Mã GV trong trường', 'Mã tài khoản', 'Mã tra cứu lịch']);
+    result.catalogContext.lecturers.forEach(row => identities.addRow([row.lecturerCode, row.accountTeacherId || '', row.teacherId]));
+    identities.columns.forEach(column => { column.width = 30; column.numFmt = '@'; });
+    sheets.push(identities);
+  }
   if (result.teacherAllocations?.length) {
     const summary = workbook.addWorksheet('PhanCongGiangVien');
     summary.addRow(['Mã môn', 'Khóa', 'Mã GV', 'Tên GV', 'Loại LT/TH', 'Trọng số', 'Mục tiêu lớp/nhóm', 'Đã giao đủ tiết', 'Tiết đã xếp']);
