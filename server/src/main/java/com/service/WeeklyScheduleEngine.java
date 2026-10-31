@@ -191,11 +191,13 @@ final class WeeklyScheduleEngine {
                 var oldName = teacherNames.putIfAbsent(t.getTeacherId(), t.getTeacherName());
                 if (oldName != null && !oldName.equals(t.getTeacherName())) throw new IllegalArgumentException(row + "tên GV mâu thuẫn.");
             }
-            String signature = c.getCourseName() + ":" + c.getCredits() + ":" + c.getTheoryPeriods() + ":" + c.getPracticePeriods()
+            String rowType = (c.getTheoryPeriods() > 0 && c.getPracticePeriods() == 0) ? "LT"
+                    : (c.getPracticePeriods() > 0 && c.getTheoryPeriods() == 0) ? "TH" : "BOTH";
+            String signature = c.getCourseName() + ":" + c.getCredits()
                     + ":" + c.getTeachers().stream().sorted(Comparator.comparing(TeacherCandidateDTO::getTeacherId))
                     .map(t -> t.getTeacherId() + ":" + t.getTheoryWeight() + ":" + t.getPracticeWeight()).toList();
-            var old = signatures.putIfAbsent(c.getCourseCode() + ":" + c.getCohort(), signature);
-            if (old != null && !old.equals(signature)) throw new IllegalArgumentException(row + "cùng môn/khóa có tín chỉ, khối lượng hoặc GV/trọng số mâu thuẫn.");
+            var old = signatures.putIfAbsent(c.getCourseCode() + ":" + c.getCohort() + ":" + rowType, signature);
+            if (old != null && !old.equals(signature)) throw new IllegalArgumentException(row + "cùng môn/khóa có tên môn, tín chỉ hoặc danh sách GV mâu thuẫn.");
         }
     }
 

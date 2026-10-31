@@ -64,7 +64,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/static/**", "/*.ico", "/*.json").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auth/change-password").authenticated()
-                .requestMatchers(HttpMethod.GET, "/api/schedule/rooms").hasRole("ADMIN")
+                .requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/upload-excel-teacher").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/schedule/week/*", "/api/schedule/auth/me").authenticated()

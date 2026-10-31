@@ -26,13 +26,11 @@ public class ExcelScheduleService {
     private final ScheduleService scheduleService;
     private final AutoScheduleService autoScheduleService;
     private final RoomRepository roomRepository;
+    private final com.repository.TeacherSubjectRepository teacherSubjectRepository; // <--- THÊM DÒNG NÀY VÀO ĐÂY
     private final ScheduleWriteLock writeLock;
-
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{2,4})");
 
-    /**
-     * 1. Giảng viên import lịch cá nhân từ file Excel (Hỗ trợ Cột 9: Giờ bắt đầu, Cột 10: Giờ kết thúc)
-     */
+    
     @Transactional(rollbackFor = Exception.class)
     public void importTeacherScheduleFromExcel(
             MultipartFile file,
@@ -276,7 +274,8 @@ public class ExcelScheduleService {
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
-        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile, teacherFile);
+        List< com.model.TeacherSubject > dbTeachers = teacherSubjectRepository.findBySchoolCodeOrderByTeacherIdAscCourseCodeAsc(resolvedSchoolId);
+        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile, teacherFile, dbTeachers);
         if (courseDemands.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
         
         writeLock.acquire();
