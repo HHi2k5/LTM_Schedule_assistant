@@ -1,10 +1,13 @@
 package com.controller;
 
 import com.dto.AutoScheduleResponse;
+import com.dto.TeacherAccountDTO;
 import com.dto.WeekScheduleResponse;
 import com.model.Room;
+import com.model.Teacher;
 import com.model.TeacherSubject;
 import com.repository.RoomRepository;
+import com.repository.TeacherRepository;
 import com.repository.TeacherSubjectRepository;
 import com.security.AccountPrincipal;
 import com.security.ScheduleAccess;
@@ -15,13 +18,14 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.text.Normalizer;
 import java.time.LocalDate;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/schedule")
@@ -32,7 +36,9 @@ public class ScheduleController {
     private final ExcelScheduleService excelScheduleService;
     private final com.service.AuthService authService;
     private final RoomRepository roomRepository;
+    private final TeacherRepository teacherRepository;
     private final TeacherSubjectRepository teacherSubjectRepository;
+    private final PasswordEncoder passwordEncoder;
     private final ScheduleAccess scheduleAccess;
 
     // 1. Giảng viên up file Excel lịch trường
@@ -67,8 +73,23 @@ public class ScheduleController {
                 "message", "Đã xóa toàn bộ lịch cũ của trường " + schoolId + "!"
         ));
     }
+// 2b. Admin xóa toàn bộ lịch đã xếp của Khoa (chỉ khi Admin bấm xóa mới mất)
+    @DeleteMapping("/department-schedule")
+    public ResponseEntity<?> deleteDepartmentSchedule(@RequestParam(defaultValue = "PTIT") String schoolId) {
+        int removed = scheduleService.deleteEntireDepartmentSchedule(schoolId);
+        return ResponseEntity.ok(Map.of(
+                "status", "SUCCESS",
+                "message", "Đã xóa toàn bộ lịch của khoa " + schoolId + " (" + removed + " bản ghi giảng viên)!"
+        ));
+    }
 
-    // 3. Xếp lịch tự động toàn trường (Chỉ cần 1 file Kế hoạch mở lớp nếu hệ thống đã lưu sẵn GV và Phòng học)
+    // 3b. Admin xếp lịch bổ sung cho Giảng viên thỉnh giảng (sau khi đã xếp lịch toàn khoa)
+    @PostMapping("/visiting-schedule")
+    public ResponseEntity<AutoScheduleResponse> scheduleVisitingTeacher(
+            @RequestBody com.dto.VisitingTeacherRequest request) {
+        return ResponseEntity.ok(scheduleService.scheduleVisitingTeacher(request));
+    }
+    // 3. Xếp lịch tự động của khoa
     @PostMapping(value = {"/auto-generate-excel", "/auto-generate-3files"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> autoGenerateFromExcel(
             @RequestParam(value = "planFile", required = false) MultipartFile planFile,
@@ -133,34 +154,155 @@ public class ScheduleController {
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "Đã xóa phòng học."));
     }
 
-    // ==================== QUẢN LÝ GIẢNG VIÊN - MÔN HỌC LƯU SẴN (CRUD) ====================
-    @GetMapping("/teacher-subjects")
-    public ResponseEntity<List<TeacherSubject>> getTeacherSubjects(@RequestParam(defaultValue = "PTIT") String schoolId) {
-        return ResponseEntity.ok(teacherSubjectRepository.findBySchoolCodeOrderByTeacherIdAscCourseCodeAsc(schoolId));
+    // Hàm tiện ích tạo mật khẩu mặc định: Tên giảng viên không dấu viết liền (thường) + Mã GV
+    // VD: "Đào Ngọc Phong" + "GV01" -> "daongocphongGV01"
+    private String buildDefaultPassword(String fullName, String teacherId) {
+        if (fullName == null) fullName = "";
+        String noAccent = Normalizer.normalize(fullName, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D')
+                .replaceAll("[^a-zA-Z0-9]", "")
+                .toLowerCase(Locale.ROOT);
+        return noAccent + teacherId.trim().toUpperCase(Locale.ROOT);
     }
 
+    // ==================== QUẢN LÝ GIẢNG VIÊN (1 GV DẠY NHIỀU MÔN + TỰ SINH TK & MK) ====================
+    @GetMapping("/teacher-subjects")
+    public ResponseEntity<List<TeacherAccountDTO>> getTeacherSubjects(@RequestParam(defaultValue = "PTIT") String schoolId) {
+        List<TeacherSubject> assignments = teacherSubjectRepository.findBySchoolCodeOrderByTeacherIdAscCourseCodeAsc(schoolId);
+        Map<String, Teacher> teacherMap = new HashMap<>();
+        teacherRepository.findAll().forEach(t -> teacherMap.put(t.getTeacherId().toUpperCase(Locale.ROOT), t));
+
+        Map<String, TeacherAccountDTO> grouped = new LinkedHashMap<>();
+
+        for (TeacherSubject ts : assignments) {
+            String tId = ts.getTeacherId().trim().toUpperCase(Locale.ROOT);
+            Teacher acc = teacherMap.get(tId);
+            String username = (acc != null && acc.getUsername() != null && !acc.getUsername().isBlank())
+                    ? acc.getUsername()
+                    : tId;
+            String defaultPwd = buildDefaultPassword(ts.getTeacherName(), tId);
+
+            TeacherAccountDTO dto = grouped.computeIfAbsent(tId, k -> TeacherAccountDTO.builder()
+                    .schoolCode(ts.getSchoolCode())
+                    .teacherId(tId)
+                    .teacherName(ts.getTeacherName())
+                    .username(username)
+                    .defaultPassword(defaultPwd)
+                    .subjects(new ArrayList<>())
+                    .build());
+
+            dto.getSubjects().add(TeacherAccountDTO.SubjectAssignment.builder()
+                    .id(ts.getId())
+                    .courseCode(ts.getCourseCode())
+                    .courseName(ts.getCourseName())
+                    .cohort(ts.getCohort())
+                    .theoryWeight(ts.getTheoryWeight())
+                    .practiceWeight(ts.getPracticeWeight())
+                    .build());
+        }
+
+        return ResponseEntity.ok(new ArrayList<>(grouped.values()));
+    }
+
+    @Transactional
     @PostMapping("/teacher-subjects")
-    public ResponseEntity<TeacherSubject> saveOrUpdateTeacherSubject(@RequestBody TeacherSubject payload) {
+    public ResponseEntity<?> saveOrUpdateTeacherSubject(@RequestBody TeacherAccountDTO payload) {
         String schoolCode = (payload.getSchoolCode() == null || payload.getSchoolCode().isBlank()) ? "PTIT" : payload.getSchoolCode().trim();
+        if (payload.getTeacherId() == null || payload.getTeacherId().isBlank()) {
+            throw new IllegalArgumentException("Vui lòng nhập Mã giảng viên.");
+        }
+        if (payload.getTeacherName() == null || payload.getTeacherName().isBlank()) {
+            throw new IllegalArgumentException("Vui lòng nhập Họ tên giảng viên.");
+        }
+
+        // Gom danh sách môn học (hỗ trợ cả mảng subjects nhiều môn lẫn trường courseCode đơn lẻ)
+        List<TeacherAccountDTO.SubjectAssignment> subjectList = new ArrayList<>();
+        if (payload.getSubjects() != null && !payload.getSubjects().isEmpty()) {
+            subjectList.addAll(payload.getSubjects());
+        } else if (payload.getCourseCode() != null && !payload.getCourseCode().isBlank()) {
+            subjectList.add(TeacherAccountDTO.SubjectAssignment.builder()
+                    .id(payload.getSubjectAssignmentId())
+                    .courseCode(payload.getCourseCode())
+                    .courseName(payload.getCourseName())
+                    .cohort(payload.getCohort())
+                    .theoryWeight(payload.getTheoryWeight())
+                    .practiceWeight(payload.getPracticeWeight())
+                    .build());
+        }
+
+        if (subjectList.isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng thêm ít nhất một môn học cho giảng viên.");
+        }
+
         String teacherId = payload.getTeacherId().trim().toUpperCase(Locale.ROOT);
-        String courseCode = payload.getCourseCode().trim().toUpperCase(Locale.ROOT);
-        String cohort = (payload.getCohort() == null || payload.getCohort().isBlank()) ? "*" : payload.getCohort().trim();
+        String teacherName = payload.getTeacherName().trim();
 
-        TeacherSubject ts = (payload.getId() != null)
-                ? teacherSubjectRepository.findById(payload.getId()).orElse(new TeacherSubject())
-                : teacherSubjectRepository.findBySchoolCodeAndTeacherIdIgnoreCaseAndCourseCodeIgnoreCaseAndCohortIgnoreCase(
-                        schoolCode, teacherId, courseCode, cohort).orElse(new TeacherSubject());
+        // Tự động tạo Tài khoản = Mã GV, Mật khẩu mặc định = tên không dấu viết liền + Mã GV
+        String generatedUsername = teacherId;
+        String generatedPassword = buildDefaultPassword(teacherName, teacherId);
 
-        ts.setSchoolCode(schoolCode);
-        ts.setTeacherId(teacherId);
-        ts.setTeacherName(payload.getTeacherName().trim());
-        ts.setCourseCode(courseCode);
-        ts.setCourseName(payload.getCourseName() != null ? payload.getCourseName().trim() : "");
-        ts.setCohort(cohort);
-        ts.setTheoryWeight(payload.getTheoryWeight() != null ? payload.getTheoryWeight() : 1);
-        ts.setPracticeWeight(payload.getPracticeWeight() != null ? payload.getPracticeWeight() : 1);
+        Teacher teacher = teacherRepository.findById(teacherId).orElse(null);
+        if (teacher == null) {
+            teacher = Teacher.builder()
+                    .teacherId(teacherId)
+                    .fullName(teacherName)
+                    .username(generatedUsername)
+                    .password(passwordEncoder.encode(generatedPassword))
+                    .role("TEACHER")
+                    .semesterStartDate(LocalDate.of(2026, 8, 10))
+                    .build();
+        } else {
+            teacher.setFullName(teacherName);
+            if (teacher.getUsername() == null || teacher.getUsername().isBlank()) {
+                teacher.setUsername(generatedUsername);
+            }
+            if (teacher.getPassword() == null || teacher.getPassword().isBlank()) {
+                teacher.setPassword(passwordEncoder.encode(generatedPassword));
+            }
+        }
+        teacherRepository.save(teacher);
 
-        return ResponseEntity.ok(teacherSubjectRepository.save(ts));
+        List<TeacherAccountDTO.SubjectAssignment> savedSubjects = new ArrayList<>();
+        for (TeacherAccountDTO.SubjectAssignment sub : subjectList) {
+            if (sub.getCourseCode() == null || sub.getCourseCode().isBlank()) continue;
+            String courseCode = sub.getCourseCode().trim().toUpperCase(Locale.ROOT);
+            String cohort = (sub.getCohort() == null || sub.getCohort().isBlank()) ? "*" : sub.getCohort().trim();
+
+            TeacherSubject ts = (sub.getId() != null)
+                    ? teacherSubjectRepository.findById(sub.getId()).orElse(new TeacherSubject())
+                    : teacherSubjectRepository.findBySchoolCodeAndTeacherIdIgnoreCaseAndCourseCodeIgnoreCaseAndCohortIgnoreCase(
+                            schoolCode, teacherId, courseCode, cohort).orElse(new TeacherSubject());
+
+            ts.setSchoolCode(schoolCode);
+            ts.setTeacherId(teacherId);
+            ts.setTeacherName(teacherName);
+            ts.setCourseCode(courseCode);
+            ts.setCourseName(sub.getCourseName() != null ? sub.getCourseName().trim() : "");
+            ts.setCohort(cohort);
+            ts.setTheoryWeight(sub.getTheoryWeight() != null ? sub.getTheoryWeight() : 1);
+            ts.setPracticeWeight(sub.getPracticeWeight() != null ? sub.getPracticeWeight() : 1);
+
+            TeacherSubject savedTs = teacherSubjectRepository.save(ts);
+            savedSubjects.add(TeacherAccountDTO.SubjectAssignment.builder()
+                    .id(savedTs.getId())
+                    .courseCode(savedTs.getCourseCode())
+                    .courseName(savedTs.getCourseName())
+                    .cohort(savedTs.getCohort())
+                    .theoryWeight(savedTs.getTheoryWeight())
+                    .practiceWeight(savedTs.getPracticeWeight())
+                    .build());
+        }
+
+        return ResponseEntity.ok(TeacherAccountDTO.builder()
+                .schoolCode(schoolCode)
+                .teacherId(teacherId)
+                .teacherName(teacherName)
+                .username(teacher.getUsername())
+                .defaultPassword(generatedPassword)
+                .subjects(savedSubjects)
+                .build());
     }
 
     @DeleteMapping("/teacher-subjects/{id}")
