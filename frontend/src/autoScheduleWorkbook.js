@@ -1,7 +1,10 @@
 import ExcelJS from 'exceljs';
 
-export const planHeaders = ['STT', 'Mã môn', 'Tên học phần', 'Sĩ số', 'Khóa', 'Số lớp mở',
-  'Tuần bắt đầu — từ ngày', 'Tuần kết thúc — đến ngày', 'Số tín chỉ', 'Tổng tiết LT', 'Tổng tiết TH'];
+export const planHeaders = [
+  'STT', 'Mã môn', 'Tên học phần', 'Loại lớp (LT / TH)', 'Sĩ số', 'Khóa',
+  'Số lớp mở', 'Tuần bắt đầu — từ ngày', 'Tuần kết thúc — đến ngày',
+  'Số tín chỉ', 'Số tiết'
+];
 export const teacherHeaders = ['Mã môn', 'Tên học phần', 'Khóa', 'Mã GV', 'Họ tên giảng viên', 'Trọng số LT', 'Trọng số TH'];
 const excelDate = value => value ? `${value.slice(8, 10)}/${value.slice(5, 7)}/${value.slice(0, 4)}` : '';
 const text = value => String(value ?? '').trim();
@@ -18,9 +21,19 @@ function workbook(name, headers, rows) {
 }
 
 export function planWorkbook(plans) {
-  return workbook('KeHoachMoLop', planHeaders, plans.map((p, i) => [i + 1, text(p.courseCode), text(p.courseName),
-    Number(p.classSize), text(p.cohort), Number(p.numClasses), excelDate(p.studyStartDate), excelDate(p.studyEndDate),
-    Number(p.credits), Number(p.theoryPeriods), Number(p.practicePeriods)]));
+  return workbook('KeHoachMoLop', planHeaders, plans.map((p, i) => [
+    i + 1,
+    text(p.courseCode),
+    text(p.courseName),
+    text(p.classType || 'LT'),
+    Number(p.classSize),
+    text(p.cohort),
+    Number(p.numClasses),
+    excelDate(p.studyStartDate),
+    excelDate(p.studyEndDate),
+    Number(p.credits),
+    Number(p.totalPeriods ?? p.theoryPeriods ?? 30)
+  ]));
 }
 
 export function teacherWorkbook(teachers) {

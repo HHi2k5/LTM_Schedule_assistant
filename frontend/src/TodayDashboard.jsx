@@ -6,14 +6,14 @@ import { lessonStatus, summarizeToday, teachingWeek, timeUntil, vietnamTime } fr
 const dateFormat = new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'full' });
 const statusLabels = { done: 'Đã kết thúc', ongoing: 'Đang dạy', upcoming: 'Chưa bắt đầu' };
 
-export default function TodayDashboard({ user, onSelect, onViewWeek, onImport }) {
+export default function TodayDashboard({ user, scheduleRevision = 0, onSelect, onViewWeek, onImport }) {
   const [now, setNow] = useState(() => new Date());
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState(null);
   const current = vietnamTime(now);
   const week = teachingWeek(current.date, user.semesterStartDate);
   const inRange = week !== null && week >= 1 && week <= 100;
-  const key = `${user.teacherId}/${current.date}/${week}/${revision}`;
+  const key = `${user.teacherId}/${current.date}/${week}/${revision}/${scheduleRevision}`;
   const loading = inRange && result?.key !== key;
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import lombok.*;
 public class ClassWorkloadDTO {
     private String classId;
     private String courseCode;
+    private String courseName;
     private String cohort;
     private String classGroup;
     private String sessionType;
@@ -13,4 +14,6 @@ public class ClassWorkloadDTO {
     private int requiredPeriods;
     private int scheduledPeriods;
     private int missingPeriods;
+    private String reasonCode;
+    private String reason;
 }

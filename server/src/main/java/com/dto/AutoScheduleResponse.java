@@ -13,6 +13,7 @@ import java.util.List;
 public class AutoScheduleResponse {
     private List<TeacherAllocationDTO> teacherAllocations;
     private List<ClassWorkloadDTO> classWorkloads;
+    private List<ClassWorkloadDTO> unscheduledClasses;
     private int totalLessonsScheduled;
     private boolean saved;
     private String schoolId;

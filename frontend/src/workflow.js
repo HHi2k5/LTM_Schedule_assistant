@@ -18,8 +18,13 @@ export function validateSchool(id, name, start) {
 export function validateNewPassword(password) {
   if (password.length < 8 || new TextEncoder().encode(password).length > 72) throw new Error('Mật khẩu cần ít nhất 8 ký tự và tối đa 72 byte UTF-8 (ký tự có dấu có thể chiếm nhiều byte).');
 }
+export const isSavedAutoResult = result => result?.saved === true && ['SUCCESS', 'PARTIAL_SUCCESS'].includes(result?.status);
+export function unscheduledClasses(result) {
+  if (Array.isArray(result?.unscheduledClasses)) return result.unscheduledClasses;
+  return (result?.classWorkloads || []).filter(row => row.missingPeriods > 0);
+}
 export function validateAutoResult(result) {
-  const saved = result?.saved === true && result?.status === 'SUCCESS';
+  const saved = isSavedAutoResult(result);
   const preview = result?.saved === false && result?.status === 'NOT_SAVED';
   if ((!saved && !preview) || !Array.isArray(result.scheduledClasses) || !result.schoolId || !result.schoolName || !validSemesterStart(result.semesterStartDate)) {
     throw new Error('Máy chủ chưa xác nhận trạng thái và thông tin kết quả. Hãy tải lại lịch để kiểm tra trước khi chạy lại.');

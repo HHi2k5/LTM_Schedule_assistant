@@ -58,16 +58,22 @@ public class SecurityConfig {
                     mapper.writeValue(response.getWriter(), Map.of("status", "ERROR", "message", "Bạn không có quyền thực hiện thao tác này."));
                 }))
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auth/login", "/api/schedule/auth/register").permitAll()
                 .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/static/**", "/*.ico", "/*.json").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auth/change-password").authenticated()
-                .requestMatchers(HttpMethod.GET, "/api/schedule/rooms").hasRole("ADMIN")
+                .requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/upload-excel-teacher").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/schedule/week/*", "/api/schedule/auth/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/schedule/events").hasAnyRole("TEACHER", "ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files", "/api/schedule/visiting-schedule").hasRole("ADMIN")
+.requestMatchers(HttpMethod.DELETE, "/api/schedule/department-schedule").hasRole("ADMIN")
+.requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
+.requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasAnyRole("TEACHER", "ADMIN")
                 .requestMatchers("/error").permitAll()
                 .anyRequest().denyAll()
             );

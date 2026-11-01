@@ -44,4 +44,11 @@ public class TokenService {
         return Jwts.parserBuilder().setSigningKey(key).requireIssuer("schedule-assistant")
                 .build().parseClaimsJws(token).getBody().getSubject();
     }
+
+    public Instant expiresAt(String token) {
+        var expiry = Jwts.parserBuilder().setSigningKey(key).requireIssuer("schedule-assistant")
+                .build().parseClaimsJws(token).getBody().getExpiration();
+        if (expiry == null) throw new io.jsonwebtoken.JwtException("Missing token expiry.");
+        return expiry.toInstant();
+    }
 }

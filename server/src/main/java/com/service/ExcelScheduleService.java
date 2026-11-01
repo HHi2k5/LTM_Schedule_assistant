@@ -26,13 +26,11 @@ public class ExcelScheduleService {
     private final ScheduleService scheduleService;
     private final AutoScheduleService autoScheduleService;
     private final RoomRepository roomRepository;
+    private final com.repository.TeacherSubjectRepository teacherSubjectRepository; // <--- THÊM DÒNG NÀY VÀO ĐÂY
     private final ScheduleWriteLock writeLock;
-
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{2,4})");
 
-    /**
-     * 1. Giảng viên import lịch cá nhân từ file Excel (Hỗ trợ Cột 9: Giờ bắt đầu, Cột 10: Giờ kết thúc)
-     */
+
     @Transactional(rollbackFor = Exception.class)
     public void importTeacherScheduleFromExcel(
             MultipartFile file,
@@ -57,7 +55,7 @@ public class ExcelScheduleService {
             boolean exportedTeacherColumns = header != null
                     && "Mã GV".equalsIgnoreCase(getCellText(header, 9, formatter))
                     && "Tên GV".equalsIgnoreCase(getCellText(header, 10, formatter));
-            
+
             // Khởi tạo bảng giờ linh hoạt có sẵn Tiết 6 (12:00 - 13:00)
             Map<Integer, PeriodTimeDTO> periodMap = new TreeMap<>();
             for (PeriodTimeDTO p : readPeriodsOptional(workbook, formatter)) {
@@ -83,7 +81,7 @@ public class ExcelScheduleService {
                     String groupCell = getCellText(row, 2, formatter);
                     String dayStr = getCellText(row, 4, formatter);
                     String startPeriodStr = getCellText(row, 5, formatter);
-                    
+
                     // Đọc thêm Cột 9 (Giờ bắt đầu) và Cột 10 (Giờ kết thúc)
                     LocalTime customStart = exportedTeacherColumns ? null : parseOptionalTimeCell(row.getCell(9), formatter);
                     LocalTime customEnd = exportedTeacherColumns ? null : parseOptionalTimeCell(row.getCell(10), formatter);
@@ -96,7 +94,7 @@ public class ExcelScheduleService {
                     if (dayStr.isBlank()) throw new IllegalArgumentException("Thiếu thứ.");
 
                     int dayOfWeek = parseDayOfWeek(dayStr);
-                    
+
                     // LOGIC QUAN TRỌNG: Gán Tiết 6 tự động nếu giờ là 12:00 và tiết để trống
                     int startPeriod;
                     if (startPeriodStr.isBlank() && customStart != null && customStart.equals(LocalTime.of(12, 0))) {
@@ -276,9 +274,10 @@ public class ExcelScheduleService {
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
-        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile, teacherFile);
+        List< com.model.TeacherSubject > dbTeachers = teacherSubjectRepository.findBySchoolCodeOrderByTeacherIdAscCourseCodeAsc(resolvedSchoolId);
+        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile, teacherFile, dbTeachers);
         if (courseDemands.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
-        
+
         writeLock.acquire();
         List<Room> availableRooms = parseAndSaveRoomExcel(roomFile, resolvedSchoolId);
 

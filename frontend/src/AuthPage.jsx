@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
-import { GraduationCap, LogIn, UserPlus, CheckCircle2 } from 'lucide-react';
+import { GraduationCap, LogIn, CheckCircle2 } from 'lucide-react';
 import { api } from './schedule';
 import { setAccessToken } from './authSession';
-import { validateNewPassword } from './workflow';
 import FormError from './FormError';
 
 export default function AuthPage({ onAuthenticated }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [form, setForm] = useState({
     username: '',
     password: '',
-    fullName: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -30,23 +27,20 @@ export default function AuthPage({ onAuthenticated }) {
     setMessage('');
 
     try {
-      if (mode === 'register') {
-        validateNewPassword(form.password);
-        if (!form.fullName.trim()) throw new Error('Điền họ và tên giảng viên.');
-      }
       if (!form.username.trim()) throw new Error('Điền tên đăng nhập.');
-      const endpoint = mode === 'login' ? '/auth/login' : '/auth/register';
-      const result = await api(endpoint, {
+      const result = await api('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: form.username.trim(), password: form.password, ...(mode === 'register' ? { fullName: form.fullName.trim() } : {}) }),
+        body: JSON.stringify({ username: form.username.trim(), password: form.password }),
       });
 
       if (result.status !== 'SUCCESS') {
-        throw new Error(result.message || 'Thao tác thất bại.');
+        throw new Error(result.message || 'Đăng nhập thất bại.');
       }
 
-      if (!result.accessToken || !['ADMIN', 'TEACHER'].includes(result.role)) throw new Error('Máy chủ chưa trả phiên đăng nhập hợp lệ.');
+      if (!result.accessToken || !['ADMIN', 'TEACHER'].includes(result.role)) {
+        throw new Error('Máy chủ chưa trả phiên đăng nhập hợp lệ.');
+      }
       setAccessToken(result.accessToken);
       setMessage(result.message);
       onAuthenticated({
@@ -79,7 +73,7 @@ export default function AuthPage({ onAuthenticated }) {
       <section
         className="standalone-panel import-panel"
         style={{
-          maxWidth: '500px',
+          maxWidth: '480px',
           width: '100%',
           margin: '0 auto',
         }}
@@ -88,40 +82,25 @@ export default function AuthPage({ onAuthenticated }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="brand-mark"><GraduationCap size={26} /></span>
             <div>
-              <h2>{mode === 'login' ? 'Đăng nhập hệ thống' : 'Đăng ký tài khoản'}</h2>
-              <p className="muted-text">Campus · Không gian quản lý và xếp lịch giảng dạy</p>
+              <h2>Đăng nhập hệ thống</h2>
+              <p className="muted-text">Campus · Quản lý và xếp lịch giảng dạy của khoa</p>
             </div>
           </div>
         </div>
 
-        <div className="import-steps" style={{ marginBottom: '1.25rem' }}>
-          <button
-            type="button"
-            disabled={loading}
-            className={`button ${mode === 'login' ? 'primary' : ''}`}
-            onClick={() => { setMode('login'); setError(''); setForm(previous => ({ ...previous, password: '' })); }}
-          >
-            <LogIn size={16} /> Đăng nhập
-          </button>
-          <button
-            type="button"
-            disabled={loading}
-            className={`button ${mode === 'register' ? 'primary' : ''}`}
-            onClick={() => { setMode('register'); setError(''); setForm(previous => ({ ...previous, password: '' })); }}
-          >
-            <UserPlus size={16} /> Đăng ký mới
-          </button>
-        </div>
+        <p className="muted-text" style={{ marginBottom: '1rem' }}>
+          Giảng viên đăng nhập bằng <strong>Tài khoản</strong> và <strong>Mật khẩu</strong> do Quản trị viên (Admin) của khoa cấp. Sau khi đăng nhập, giảng viên có thể vào mục <strong>Cài đặt</strong> để đổi mật khẩu cá nhân.
+        </p>
 
         <form onSubmit={handleSubmit}>
           <fieldset disabled={loading} className="import-fields" style={{ gridTemplateColumns: '1fr' }}>
             <label>
-              Tên đăng nhập
+              Tên đăng nhập (Tài khoản)
               <input
                 name="username"
                 value={form.username}
                 onChange={handleChange}
-                placeholder="Nhập username..."
+                placeholder="Nhập tài khoản được cấp..."
                 required
                 maxLength={50}
                 autoComplete="username"
@@ -132,36 +111,14 @@ export default function AuthPage({ onAuthenticated }) {
               Mật khẩu
               <input
                 type="password"
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                minLength={mode === 'register' ? 8 : undefined}
+                autoComplete="current-password"
                 name="password"
                 value={form.password}
                 onChange={handleChange}
                 placeholder="••••••••"
                 required
               />
-              {mode === 'register' && <small>Ít nhất 8 ký tự, tối đa 72 byte UTF-8.</small>}
             </label>
-
-            {mode === 'register' && (
-              <>
-                <p className="muted-text">Giảng viên tự đăng ký tài khoản và nhận mã riêng do hệ thống tạo. Dùng mã này khi trường lập danh sách phân công giảng dạy.</p>
-
-                <label>
-                  Họ và tên giảng viên
-                  <input
-                    name="fullName"
-                    value={form.fullName}
-                    onChange={handleChange}
-                    placeholder="Ví dụ: Đào Ngọc Phong"
-                    required
-                    maxLength={100}
-                  />
-                </label>
-
-                <p className="muted-text">Đăng ký tài khoản giảng viên. Tài khoản quản lý được cấp quyền riêng.</p>
-              </>
-            )}
           </fieldset>
 
           <FormError message={error}/>
@@ -174,8 +131,8 @@ export default function AuthPage({ onAuthenticated }) {
 
           <div className="import-actions" style={{ marginTop: '1.25rem' }}>
             <button type="submit" className="button primary" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
-              {mode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
-              {loading ? 'Đang xử lý…' : mode === 'login' ? 'Đăng nhập vào không gian làm việc' : 'Hoàn tất đăng ký'}
+              <LogIn size={17} />
+              {loading ? 'Đang đăng nhập…' : 'Đăng nhập vào không gian làm việc'}
             </button>
           </div>
         </form>
