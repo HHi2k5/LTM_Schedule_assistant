@@ -30,10 +30,13 @@ public class ScheduleService {
     private final com.security.ScheduleAccess scheduleAccess;
     private final ScheduleWriteLock writeLock;
 
-    // Bảng 12 màu sắc tương phản rõ rệt để mỗi giảng viên có 1 màu riêng trên lịch toàn khoa
+    // Bảng 30 màu sắc tương phản rõ rệt để mỗi giảng viên (cơ hữu và thỉnh giảng) có 1 màu riêng trên lịch toàn khoa
     private static final String[] TEACHER_PALETTE = {
         "#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0284c7", "#db2777",
-        "#4f46e5", "#0d9488", "#d97706", "#dc2626", "#7c3aed", "#059669"
+        "#4f46e5", "#0d9488", "#d97706", "#dc2626", "#7c3aed", "#059669",
+        "#3b82f6", "#22c55e", "#a855f7", "#f97316", "#0ea5e9", "#ec4899",
+        "#6366f1", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6", "#10b981",
+        "#1d4ed8", "#15803d", "#7e22ce", "#c2410c", "#0369a1", "#be185d"
     };
 
     private String pickTeacherColor(String teacherId, int index) {
@@ -319,7 +322,7 @@ public class ScheduleService {
                 .build();
     }
 
-    // ==================== XẾP LỊCH BỔ SUNG CHO GIẢNG VIÊN THỈNH GIẢNG ====================
+    // ==================== XẾP LỊCH BỔ SUNG CHO GIẢNG VIÊN THỈNH GIẢNG (HỖ TRỢ ĐA MÔN / ĐA LỚP) ====================
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse scheduleVisitingTeacher(VisitingTeacherRequest req) {
         writeLock.acquire();
@@ -331,20 +334,12 @@ public class ScheduleService {
         if (req.getTeacherId() == null || req.getTeacherId().isBlank() || req.getTeacherName() == null || req.getTeacherName().isBlank()) {
             throw new IllegalArgumentException("Vui lòng nhập Mã giảng viên và Tên giảng viên thỉnh giảng.");
         }
-        if (req.getCourseCode() == null || req.getCourseCode().isBlank() || req.getCourseName() == null || req.getCourseName().isBlank()) {
-            throw new IllegalArgumentException("Vui lòng nhập Mã môn học và Tên môn học.");
+        if (req.getAssignments() == null || req.getAssignments().isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng thêm ít nhất một phân công môn học / lớp học cho giảng viên thỉnh giảng.");
         }
 
         String teacherId = req.getTeacherId().trim().toUpperCase(Locale.ROOT);
         String teacherName = req.getTeacherName().trim();
-        String courseCode = req.getCourseCode().trim().toUpperCase(Locale.ROOT);
-        String courseName = req.getCourseName().trim();
-        String cohort = (req.getCohort() == null || req.getCohort().isBlank()) ? "2024" : req.getCohort().trim();
-        String classGroup = (req.getClassGroup() == null || req.getClassGroup().isBlank()) ? "Lớp TG-01" : req.getClassGroup().trim();
-        boolean isPractice = "PRACTICE".equalsIgnoreCase(req.getSessionType()) || "TH".equalsIgnoreCase(req.getSessionType());
-        int studentCount = (req.getStudentCount() != null && req.getStudentCount() > 0) ? req.getStudentCount() : (isPractice ? 30 : 60);
-        int requiredPeriods = (req.getRequiredPeriods() != null && req.getRequiredPeriods() > 0) ? req.getRequiredPeriods() : (isPractice ? 15 : 30);
-        int periodsPerSession = (req.getPeriodsPerSession() != null && req.getPeriodsPerSession() >= 1 && req.getPeriodsPerSession() <= 5) ? req.getPeriodsPerSession() : 3;
 
         LocalDate studyStart = req.getStudyStartDate() != null ? req.getStudyStartDate() : semesterStart;
         LocalDate studyEnd = req.getStudyEndDate() != null ? req.getStudyEndDate() : semesterStart.plusDays(105);
@@ -386,52 +381,16 @@ public class ScheduleService {
         final Teacher finalVisitingTeacher = visitingTeacher;
         teacherRepository.save(finalVisitingTeacher);
 
-        TeacherSubject ts = teacherSubjectRepository.findBySchoolCodeAndTeacherIdIgnoreCaseAndCourseCodeIgnoreCaseAndCohortIgnoreCase(
-                schoolCode, teacherId, courseCode, cohort).orElse(new TeacherSubject());
-        ts.setSchoolCode(schoolCode);
-        ts.setTeacherId(teacherId);
-        ts.setTeacherName(teacherName);
-        ts.setCourseCode(courseCode);
-        ts.setCourseName(courseName);
-        ts.setCohort(cohort);
-        ts.setTheoryWeight(isPractice ? 0 : 1);
-        ts.setPracticeWeight(isPractice ? 1 : 0);
-        teacherSubjectRepository.save(ts);
-
-        List<Room> candidateRooms = roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolCode).stream()
-                .filter(r -> r.isLab() == isPractice && r.getCapacity() >= studentCount)
-                .toList();
-        if (candidateRooms.isEmpty()) {
-            throw new IllegalArgumentException("Không có phòng " + (isPractice ? "Thực hành (LAB)" : "Lý thuyết") + " nào đủ sức chứa " + studentCount + " SV.");
-        }
-
-        List<Teacher> allTeachers = teacherRepository.findAllWithFullSchedule();
-        int startWeek = Math.max(1, (int) (ChronoUnit.DAYS.between(semesterStart, studyStart) / 7) + 1);
-        int endWeek = Math.min(100, (int) (ChronoUnit.DAYS.between(semesterStart, studyEnd) / 7) + 1);
-
-        int[] candidateStartPeriods = {1, 4, 7, 10};
-        int remainingPeriods = requiredPeriods;
-
         School visitingSchool = schoolRepository.findByTeacher_TeacherIdAndSchoolCode(teacherId, schoolCode)
-                .orElseGet(() -> {
-                    School s = School.builder()
-                            .schoolCode(schoolCode)
-                            .schoolName(schoolName)
-                            .colorCode(pickTeacherColor(teacherId, -1))
-                            .teacher(finalVisitingTeacher)
-                            .periods(new HashSet<>())
-                            .courses(new HashSet<>())
-                            .build();
-                    for (PeriodTimeDTO pt : default12Periods()) {
-                        s.getPeriods().add(SchoolPeriod.builder()
-                                .periodNumber(pt.getPeriod())
-                                .startTime(pt.getStart())
-                                .endTime(pt.getEnd())
-                                .school(s)
-                                .build());
-                    }
-                    return s;
-                });
+                .orElseGet(() -> School.builder()
+                        .schoolCode(schoolCode)
+                        .schoolName(schoolName)
+                        .colorCode(pickTeacherColor(teacherId, -1))
+                        .teacher(finalVisitingTeacher)
+                        .periods(new HashSet<>())
+                        .courses(new HashSet<>())
+                        .build());
+
         if (visitingSchool.getPeriods() == null || visitingSchool.getPeriods().isEmpty()) {
             visitingSchool.setPeriods(new HashSet<>());
             for (PeriodTimeDTO pt : default12Periods()) {
@@ -444,111 +403,224 @@ public class ScheduleService {
             }
         }
 
-        List<GeneratedClassSlot> scheduledSlots = new ArrayList<>();
-        Map<String, char[]> mergedWeekMap = new LinkedHashMap<>();
-        Map<String, GeneratedClassSlot> slotMetaMap = new LinkedHashMap<>();
-        List<String> adjustNotes = new ArrayList<>();
+        List<GeneratedClassSlot> allScheduledSlots = new ArrayList<>();
+        List<String> allWarnings = new ArrayList<>();
+        List<Room> allCandidateRooms = roomRepository.findBySchoolCodeOrderByCapacityAsc(schoolCode);
 
-        for (int w = startWeek; w <= endWeek && remainingPeriods > 0; w++) {
-            int periodsThisWeek = 0;
-            for (int day = 2; day <= 7 && remainingPeriods > 0 && periodsThisWeek < 6; day++) {
-                if (busyDays.contains(day)) continue;
-                LocalDate currentDate = semesterStart.plusDays((w - 1) * 7L + (day - 2));
-                if (currentDate.isBefore(studyStart) || currentDate.isAfter(studyEnd)) continue;
-                if (busySpecificDates.contains(currentDate)) continue;
+        record PlacedVisit(int week, int day, int startP, int countP, LocalDate date, Room room) {}
+        record RelocationUndo(TeachingCourse course, School school, String oldRoom) {}
 
-                for (int startP : candidateStartPeriods) {
-                    if (remainingPeriods <= 0 || periodsThisWeek >= 6) break;
-                    int countP = Math.min(periodsPerSession, remainingPeriods);
+        for (var assignment : req.getAssignments()) {
+            String courseCode = assignment.getCourseCode().trim().toUpperCase(Locale.ROOT);
+            String courseName = assignment.getCourseName().trim();
+            String cohort = (assignment.getCohort() == null || assignment.getCohort().isBlank()) ? "2024" : assignment.getCohort().trim();
+            String classGroup = (assignment.getClassGroup() == null || assignment.getClassGroup().isBlank()) ? "Lớp TG-01" : assignment.getClassGroup().trim();
+            boolean isPractice = "PRACTICE".equalsIgnoreCase(assignment.getSessionType()) || "TH".equalsIgnoreCase(assignment.getSessionType());
+            int studentCount = (assignment.getStudentCount() != null && assignment.getStudentCount() > 0) ? assignment.getStudentCount() : (isPractice ? 30 : 60);
+            int requiredPeriods = (assignment.getRequiredPeriods() != null && assignment.getRequiredPeriods() > 0) ? assignment.getRequiredPeriods() : (isPractice ? 15 : 30);
 
-                    if (isTeacherBusyAt(visitingSchool, w, day, startP, countP)) continue;
+            if (isPractice && !SchedulingPolicy.canPartitionPracticePeriods(requiredPeriods)) {
+                throw new IllegalArgumentException("Môn " + courseCode + ": Tổng tiết TH (" + requiredPeriods + ") không thể chia thành các buổi 3–4 tiết.");
+            }
 
-                    Room chosenRoom = null;
-                    for (Room room : candidateRooms) {
-                        if (!isRoomOccupiedAt(allTeachers, schoolCode, room.getRoomCode(), w, day, startP, countP)) {
-                            chosenRoom = room;
-                            break;
-                        }
-                    }
+            TeacherSubject ts = teacherSubjectRepository.findBySchoolCodeAndTeacherIdIgnoreCaseAndCourseCodeIgnoreCaseAndCohortIgnoreCase(
+                    schoolCode, teacherId, courseCode, cohort).orElse(new TeacherSubject());
+            ts.setSchoolCode(schoolCode);
+            ts.setTeacherId(teacherId);
+            ts.setTeacherName(teacherName);
+            ts.setCourseCode(courseCode);
+            ts.setCourseName(courseName);
+            ts.setCohort(cohort);
+            ts.setTheoryWeight(isPractice ? 0 : 1);
+            ts.setPracticeWeight(isPractice ? 1 : 0);
+            teacherSubjectRepository.save(ts);
 
-                    if (chosenRoom == null) {
-                        for (Room room : candidateRooms) {
-                            if (tryRelocateExistingCourse(allTeachers, candidateRooms, schoolCode, room.getRoomCode(), w, day, startP, countP, adjustNotes)) {
-                                chosenRoom = room;
-                                break;
+            List<Room> candidateRooms = allCandidateRooms.stream()
+                    .filter(r -> r.isLab() == isPractice && r.getCapacity() >= studentCount)
+                    .toList();
+            if (candidateRooms.isEmpty()) {
+                throw new IllegalArgumentException("Không có phòng " + (isPractice ? "Thực hành (LAB)" : "Lý thuyết") + " nào đủ sức chứa cho môn " + courseCode + ".");
+            }
+
+            List<Teacher> allTeachers = teacherRepository.findAllWithFullSchedule();
+            int startWeek = Math.max(1, (int) (ChronoUnit.DAYS.between(semesterStart, studyStart) / 7) + 1);
+            int endWeek = Math.min(100, (int) (ChronoUnit.DAYS.between(semesterStart, studyEnd) / 7) + 1);
+            Map<Integer, PeriodTimeDTO> periodMap = ScheduleValidation.periods(default12Periods());
+
+            List<List<Integer>> sessionPlans = isPractice
+                    ? SchedulingPolicy.practicePartitions(requiredPeriods)
+                    : List.of(buildTheoryPartition(requiredPeriods));
+
+            int[] gapPasses = isPractice ? new int[]{SchedulingPolicy.PREFERRED_GAP_DAYS, SchedulingPolicy.MIN_GAP_DAYS} : new int[]{0};
+
+            List<PlacedVisit> bestPlaced = List.of();
+            int usedGapPass = gapPasses[0];
+            String classUnitId = courseCode + ":" + cohort + ":" + classGroup + ":" + (isPractice ? "TH" : "LT");
+
+            List<LocalDate> existingGroupDates = extractExistingGroupDates(allTeachers, schoolCode, semesterStart, classUnitId);
+            Map<LocalDate, Integer> existingTheoryDaily = extractExistingTheoryDaily(allTeachers, schoolCode, semesterStart, classUnitId);
+
+            searchPass:
+            for (int minGap : gapPasses) {
+                for (List<Integer> plan : sessionPlans) {
+                    var placed = new ArrayList<PlacedVisit>();
+                    var groupDates = new ArrayList<LocalDate>(existingGroupDates);
+                    var theoryDayCount = new HashMap<LocalDate, Integer>(existingTheoryDaily);
+                    var adjustNotes = new ArrayList<String>();
+                    var undoList = new ArrayList<RelocationUndo>();
+
+                    for (int w = startWeek; w <= endWeek && placed.size() < plan.size(); w++) {
+                        int periodsThisWeek = 0;
+                        int maxWeekCap = isPractice ? 8 : 6;
+                        for (int day = 2; day <= 7 && placed.size() < plan.size() && periodsThisWeek < maxWeekCap; day++) {
+                            if (busyDays.contains(day)) continue;
+                            LocalDate currentDate = semesterStart.plusDays((w - 1) * 7L + (day - 2));
+                            if (currentDate.isBefore(studyStart) || currentDate.isAfter(studyEnd)) continue;
+                            if (busySpecificDates.contains(currentDate)) continue;
+
+                            int countP = plan.get(placed.size());
+                            if (periodsThisWeek + countP > maxWeekCap) continue;
+
+                            if (!isPractice) {
+                                int currentTheory = theoryDayCount.getOrDefault(currentDate, 0);
+                                if (currentTheory + countP > SchedulingPolicy.MAX_THEORY_CLASS_PERIODS_PER_DAY) continue;
+                            } else {
+                                if (!SchedulingPolicy.satisfiesPracticeGap(groupDates, currentDate, minGap)) continue;
                             }
+
+                            var candidateStartPeriods = SchedulingPolicy.candidateStartPeriods(List.of(1, 4, 5, 7, 10), countP);
+
+                            boolean placedOnDay = false;
+                            for (int startP : candidateStartPeriods) {
+                                if (!SchedulingPolicy.isContiguousValidSlot(periodMap, startP, countP)) continue;
+                                if (isTeacherBusyAt(visitingSchool, w, day, startP, countP)) continue;
+
+                                boolean conflictInPlaced = false;
+                                for (var pv : placed) {
+                                    if (pv.date().equals(currentDate)
+                                            && Math.max(startP, pv.startP()) <= Math.min(startP + countP - 1, pv.startP() + pv.countP() - 1)) {
+                                        conflictInPlaced = true;
+                                        break;
+                                    }
+                                }
+                                if (conflictInPlaced) continue;
+
+                                Room chosenRoom = null;
+                                for (Room room : candidateRooms) {
+                                    if (!isRoomOccupiedAt(allTeachers, schoolCode, room.getRoomCode(), w, day, startP, countP)) {
+                                        chosenRoom = room;
+                                        break;
+                                    }
+                                }
+
+                                if (chosenRoom == null) {
+                                    for (Room room : candidateRooms) {
+                                        var relocated = tryRelocateExistingCourseWithUndo(allTeachers, candidateRooms, schoolCode, room.getRoomCode(), w, day, startP, countP, adjustNotes);
+                                        if (relocated != null) {
+                                            undoList.add(new RelocationUndo(relocated.course(), relocated.school(), relocated.oldRoom()));
+                                            chosenRoom = room;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (chosenRoom != null) {
+                                    placed.add(new PlacedVisit(w, day, startP, countP, currentDate, chosenRoom));
+                                    periodsThisWeek += countP;
+                                    if (isPractice) groupDates.add(currentDate);
+                                    else theoryDayCount.merge(currentDate, countP, Integer::sum);
+                                    placedOnDay = true;
+                                    break;
+                                }
+                            }
+                            if (placedOnDay && isPractice) break;
                         }
                     }
 
-                    if (chosenRoom != null) {
-                        String key = chosenRoom.getRoomCode() + ":" + day + ":" + startP + ":" + countP;
-                        char[] weekChars = mergedWeekMap.computeIfAbsent(key, k -> {
-                            char[] arr = new char[endWeek];
-                            Arrays.fill(arr, '-');
-                            return arr;
-                        });
-                        weekChars[w - 1] = '1';
-
-                        String displayCourseName = (isPractice ? "[TH] " : "[LT] ") + courseName + " (Khóa " + cohort + " - " + classGroup + " - Thỉnh giảng)";
-                        final Room finalRoom = chosenRoom;
-                        final int finalDay = day;
-                        slotMetaMap.computeIfAbsent(key, k -> GeneratedClassSlot.builder()
-                                .teacherId(teacherId)
-                                .teacherName(teacherName)
-                                .courseCode(courseCode)
-                                .courseName(displayCourseName)
-                                .cohort(cohort)
-                                .classGroup(classGroup)
-                                .sessionType(isPractice ? "PRACTICE" : "THEORY")
-                                .studentCount(studentCount)
-                                .room(finalRoom.getRoomCode())
-                                .roomType(finalRoom.getRoomType())
-                                .roomCapacity(finalRoom.getCapacity())
-                                .dayOfWeek(finalDay)
-                                .startPeriod(startP)
-                                .numPeriods(countP)
-                                .build());
-
-                        remainingPeriods -= countP;
-                        periodsThisWeek += countP;
-                        break;
+                    int sumPlaced = placed.stream().mapToInt(PlacedVisit::countP).sum();
+                    if (sumPlaced == requiredPeriods) {
+                        for (RelocationUndo u : undoList) schoolRepository.save(u.school());
+                        bestPlaced = placed;
+                        usedGapPass = minGap;
+                        break searchPass;
+                    } else {
+                        for (int i = undoList.size() - 1; i >= 0; i--) {
+                            RelocationUndo u = undoList.get(i);
+                            u.course().setClassroom(u.oldRoom());
+                        }
+                        if (sumPlaced > bestPlaced.stream().mapToInt(PlacedVisit::countP).sum()) {
+                            bestPlaced = placed;
+                            usedGapPass = minGap;
+                        }
                     }
                 }
             }
-        }
 
-        if (mergedWeekMap.isEmpty()) {
-            throw new IllegalArgumentException("Không tìm được phòng hoặc khung giờ trống ngoài các ngày bận của giảng viên thỉnh giảng.");
-        }
+            int totalScheduledPeriods = bestPlaced.stream().mapToInt(PlacedVisit::countP).sum();
+            int missingPeriods = requiredPeriods - totalScheduledPeriods;
+            if (missingPeriods > 0) {
+                throw new IllegalArgumentException("Môn " + courseCode + " (" + classGroup + "): còn thiếu " + missingPeriods + "/" + requiredPeriods + " tiết.");
+            }
 
-        for (var entry : mergedWeekMap.entrySet()) {
-            String key = entry.getKey();
-            String weekScheduleStr = new String(entry.getValue()).replaceFirst("-+$", "");
-            GeneratedClassSlot slot = slotMetaMap.get(key);
-            slot.setWeekSchedule(weekScheduleStr);
-            slot.setPhaseNote(adjustNotes.isEmpty() ? "Xếp lịch thỉnh giảng" : String.join("; ", adjustNotes));
-            scheduledSlots.add(slot);
+            Map<String, char[]> mergedWeekMap = new LinkedHashMap<>();
+            Map<String, GeneratedClassSlot> slotMetaMap = new LinkedHashMap<>();
+            for (var pv : bestPlaced) {
+                String key = pv.room().getRoomCode() + ":" + pv.day() + ":" + pv.startP() + ":" + pv.countP();
+                char[] weekChars = mergedWeekMap.computeIfAbsent(key, k -> {
+                    char[] arr = new char[endWeek];
+                    Arrays.fill(arr, '-');
+                    return arr;
+                });
+                weekChars[pv.week() - 1] = '1';
 
-            visitingSchool.getCourses().add(TeachingCourse.builder()
-                    .courseCode(slot.getCourseCode())
-                    .courseName(slot.getCourseName())
-                    .classroom(slot.getRoom())
-                    .dayOfWeek(slot.getDayOfWeek())
-                    .startPeriod(slot.getStartPeriod())
-                    .numPeriods(slot.getNumPeriods())
-                    .weekSchedule(weekScheduleStr)
-                    .sessionType(slot.getSessionType())
-                    .sourceType("VISITING_AUTO")
-                    .school(visitingSchool)
-                    .build());
+                String displayCourseName = (isPractice ? "[TH] " : "[LT] ") + courseName + " (Khóa " + cohort + " - " + classGroup + " - Thỉnh giảng)";
+                slotMetaMap.computeIfAbsent(key, k -> GeneratedClassSlot.builder()
+                        .classId(classUnitId)
+                        .baseCourseName(courseName)
+                        .credits(3)
+                        .teacherId(teacherId)
+                        .teacherName(teacherName)
+                        .courseCode(courseCode)
+                        .courseName(displayCourseName)
+                        .cohort(cohort)
+                        .classGroup(classGroup)
+                        .sessionType(isPractice ? "PRACTICE" : "THEORY")
+                        .studentCount(studentCount)
+                        .room(pv.room().getRoomCode())
+                        .roomType(pv.room().getRoomType())
+                        .roomCapacity(pv.room().getCapacity())
+                        .dayOfWeek(pv.day())
+                        .startPeriod(pv.startP())
+                        .numPeriods(pv.countP())
+                        .build());
+            }
+
+            String gapNote = isPractice ? (usedGapPass >= SchedulingPolicy.PREFERRED_GAP_DAYS ? "TH cách >= 14 ngày" : "TH dự phòng >= 7 ngày") : "LT tối đa 3 tiết/ngày";
+            for (var entry : mergedWeekMap.entrySet()) {
+                String key = entry.getKey();
+                String weekScheduleStr = new String(entry.getValue()).replaceFirst("-+$", "");
+                GeneratedClassSlot slot = slotMetaMap.get(key);
+                slot.setWeekSchedule(weekScheduleStr);
+                slot.setPhaseNote("Xếp lịch thỉnh giảng · " + gapNote);
+                allScheduledSlots.add(slot);
+
+                visitingSchool.getCourses().add(TeachingCourse.builder()
+                        .courseCode(slot.getCourseCode())
+                        .courseName(slot.getCourseName())
+                        .classroom(slot.getRoom())
+                        .dayOfWeek(slot.getDayOfWeek())
+                        .startPeriod(slot.getStartPeriod())
+                        .numPeriods(slot.getNumPeriods())
+                        .weekSchedule(weekScheduleStr)
+                        .sessionType(slot.getSessionType())
+                        .scheduleClassId(classUnitId)
+                        .sourceType("VISITING_AUTO")
+                        .school(visitingSchool)
+                        .build());
+            }
         }
 
         schoolRepository.save(visitingSchool);
-
-        List<String> warnings = new ArrayList<>();
-        if (remainingPeriods > 0) {
-            warnings.add("Còn thiếu " + remainingPeriods + " tiết chưa xếp hết do giới hạn ngày bận.");
-        }
 
         return AutoScheduleResponse.builder()
                 .schoolId(schoolCode)
@@ -557,13 +629,64 @@ public class ScheduleService {
                 .periods(default12Periods())
                 .saved(true)
                 .status("SUCCESS")
-                .message("Đã xếp lịch thành công cho giảng viên thỉnh giảng " + teacherName + " (" + teacherId + ")"
-                        + (adjustNotes.isEmpty() ? "." : " — Đã tự động điều chỉnh lịch cũ: " + String.join(", ", adjustNotes)))
-                .totalRoomsAvailable(candidateRooms.size())
-                .totalClassesScheduled(scheduledSlots.size())
-                .scheduledClasses(scheduledSlots)
-                .unscheduledWarnings(warnings)
+                .message("Đã xếp lịch thành công cho toàn bộ các môn/lớp của giảng viên thỉnh giảng " + teacherName + " (" + teacherId + ").")
+                .totalRoomsAvailable(allCandidateRooms.size())
+                .totalClassesScheduled(allScheduledSlots.size())
+                .scheduledClasses(allScheduledSlots)
+                .unscheduledWarnings(allWarnings)
                 .build();
+    }
+
+    private List<Integer> buildTheoryPartition(int total) {
+        var list = new ArrayList<Integer>();
+        int rem = total;
+        while (rem > 0) {
+            int len = Math.min(SchedulingPolicy.MAX_THEORY_CLASS_PERIODS_PER_DAY, rem);
+            list.add(len);
+            rem -= len;
+        }
+        return list;
+    }
+
+    private List<LocalDate> extractExistingGroupDates(List<Teacher> allTeachers, String schoolCode, LocalDate anchor, String classUnitId) {
+        var dates = new ArrayList<LocalDate>();
+        for (Teacher t : allTeachers) {
+            if (t.getSchools() == null) continue;
+            for (School s : t.getSchools()) {
+                if (!schoolCode.equalsIgnoreCase(s.getSchoolCode()) || s.getCourses() == null) continue;
+                for (TeachingCourse c : s.getCourses()) {
+                    if (classUnitId.equalsIgnoreCase(c.getScheduleClassId()) && c.getWeekSchedule() != null) {
+                        for (int w = 0; w < c.getWeekSchedule().length(); w++) {
+                            if (c.getWeekSchedule().charAt(w) != '-' && c.getWeekSchedule().charAt(w) != ' ') {
+                                dates.add(anchor.plusDays(w * 7L + c.getDayOfWeek() - 2));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return dates;
+    }
+
+    private Map<LocalDate, Integer> extractExistingTheoryDaily(List<Teacher> allTeachers, String schoolCode, LocalDate anchor, String classUnitId) {
+        var map = new HashMap<LocalDate, Integer>();
+        for (Teacher t : allTeachers) {
+            if (t.getSchools() == null) continue;
+            for (School s : t.getSchools()) {
+                if (!schoolCode.equalsIgnoreCase(s.getSchoolCode()) || s.getCourses() == null) continue;
+                for (TeachingCourse c : s.getCourses()) {
+                    if (classUnitId.equalsIgnoreCase(c.getScheduleClassId()) && c.getWeekSchedule() != null) {
+                        for (int w = 0; w < c.getWeekSchedule().length(); w++) {
+                            if (c.getWeekSchedule().charAt(w) != '-' && c.getWeekSchedule().charAt(w) != ' ') {
+                                LocalDate d = anchor.plusDays(w * 7L + c.getDayOfWeek() - 2);
+                                map.merge(d, c.getNumPeriods(), Integer::sum);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return map;
     }
 
     private boolean isTeacherBusyAt(School school, int week, int day, int startP, int countP) {
@@ -600,7 +723,9 @@ public class ScheduleService {
         return false;
     }
 
-    private boolean tryRelocateExistingCourse(
+    private record RelocatedCourse(TeachingCourse course, School school, String oldRoom) {}
+
+    private RelocatedCourse tryRelocateExistingCourseWithUndo(
             List<Teacher> allTeachers,
             List<Room> candidateRooms,
             String schoolCode,
@@ -636,9 +761,8 @@ public class ScheduleService {
                                 if (freeAllWeeks) {
                                     String oldRoom = c.getClassroom();
                                     c.setClassroom(altRoom.getRoomCode());
-                                    schoolRepository.save(s);
                                     adjustNotes.add("Chuyển " + c.getCourseCode() + " từ phòng " + oldRoom + " sang " + altRoom.getRoomCode());
-                                    return true;
+                                    return new RelocatedCourse(c, s, oldRoom);
                                 }
                             }
                         }
@@ -646,7 +770,7 @@ public class ScheduleService {
                 }
             }
         }
-        return false;
+        return null;
     }
 
     private List<PeriodTimeDTO> default12Periods() {

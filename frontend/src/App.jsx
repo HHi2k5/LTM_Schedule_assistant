@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { GraduationCap, CalendarDays, BookOpen, Clock3, Settings, ChevronLeft, ChevronRight, Search, Upload, Download, List, Calendar, Menu, HelpCircle, X, CheckCircle2, AlertTriangle, RefreshCw, Sparkles, LogOut, Trash2 } from 'lucide-react';
+import { GraduationCap, CalendarDays, BookOpen, Clock3, Settings, ChevronLeft, ChevronRight, Search, Upload, Download, List, Calendar, Menu, HelpCircle, X, CheckCircle2, AlertTriangle, RefreshCw, Sparkles, LogOut, Trash2, Building2, Users } from 'lucide-react';
 import { api, dayNames, minutes, clock, dateLabel, addDays, currentWeek, layoutLessons, calendarFile } from './schedule';
 import ImportSchedule from './ImportSchedule';
 import AuthPage from './AuthPage';
@@ -8,6 +8,7 @@ import ChangePasswordForm from './ChangePasswordForm';
 import TopbarClock from './TopbarClock';
 import CalendarLesson from './CalendarLesson';
 import TodayDashboard from './TodayDashboard';
+import SchoolResourcesPage from './SchoolResourcesPage';
 import { clampWeek } from './workflow';
 import { getAccessToken, setAccessToken } from './authSession';
 import { canImport, canSchedule, canVisit, defaultPage } from './permissions';
@@ -20,6 +21,7 @@ const nav = [
   ['courses', 'Môn dạy trong tuần', BookOpen],
   ['import', 'Nhập lịch dạy', Upload],
   ['autoschedule', 'Xếp lịch của khoa', Sparkles],
+  ['resources', 'Quản lý GV & Phòng', Building2],
 ];
 const titles = Object.fromEntries([...nav, ['settings', 'Cài đặt'], ['help', 'Trợ giúp']].map(([id, label]) => [id, label]));
 
@@ -245,7 +247,7 @@ export default function App() {
       </div>
 
     {storageError && <div role="alert" className="info-banner">Không lưu được lựa chọn trên trình duyệt. Lịch đã nhập vẫn được lưu ở máy chủ.</div>}
-    {page !== 'overview' && page !== 'import' && page !== 'autoschedule' && page !== 'help' && (
+    {page !== 'overview' && page !== 'import' && page !== 'autoschedule' && page !== 'resources' && page !== 'help' && (
       <form className="teacher-picker" onSubmit={useTeacher}>
         <label>
           {canSchedule(authUser) ? 'Lọc theo mã giảng viên (Để trống = Toàn khoa)' : 'Mã giảng viên'}
@@ -309,6 +311,7 @@ export default function App() {
       </aside></div>
     </>}
     {canImport(authUser) && page === 'import' && <ImportSchedule teacherId={authUser.teacherId} teacherName={authUser.fullName} semesterStart={semesterStart} onImported={onImported}/>}
+    {canSchedule(authUser) && page === 'resources' && <SchoolResourcesPage semesterStart={semesterStart} />}
     {canSchedule(authUser) && page === 'autoschedule' && (
       <Suspense fallback={<Empty text="Đang mở trang xếp lịch của khoa…"/>}><AutoSchedulePage
         semesterStart={semesterStart}
@@ -354,7 +357,7 @@ export default function App() {
       </section>
     )}
     {page === 'settings' && <section className="standalone-panel account-panel"><h2>Tài khoản</h2><p>{authUser.fullName} · {authUser.username} · {canSchedule(authUser) ? 'Quản lý khoa' : 'Giảng viên'}</p><TeacherIdentity teacherId={authUser.teacherId}/><p className="muted-text">{canSchedule(authUser) ? 'Xếp lịch giảng dạy của khoa, xem lịch toàn khoa và tải Excel kết quả.' : 'Nhập, xem và quản lý lịch của bạn.'}</p><ChangePasswordForm username={authUser.username}/></section>}
-    {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2>{canImport(authUser) ? <><p>Tải mẫu Excel trong Nhập lịch. Điền sheet MonHoc theo 9 cột và sheet TietHoc với giờ thực của trường. Kiểm tra dữ liệu và xác nhận trước khi lưu.</p><p>Nhập lại cùng mã trường sẽ thay thế lịch của bạn tại trường đó. Giữ mốc tuần 1 của lịch đang có để đồng bộ các trường.</p><p>Giảng viên đăng nhập bằng tài khoản do Admin cấp. Vào Cài đặt để đổi mật khẩu.</p></> : <><p>Quản lý danh mục Giảng viên (Hệ thống tự sinh tài khoản và mật khẩu mặc định dựa trên tên và mã GV) và Phòng học của khoa. Sau đó tải file Kế hoạch mở lớp để tự động xếp lịch.</p><p>Xuất danh sách tài khoản giảng viên ra file Excel để gửi cho các giảng viên đăng nhập.</p></>}</section>}
+    {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2>{canImport(authUser) ? <><p>Tải mẫu Excel trong Nhập lịch. Điền sheet MonHoc theo 9 cột và sheet TietHoc với giờ thực của trường. Kiểm tra dữ liệu và xác nhận trước khi lưu.</p><p>Nhập lại cùng mã trường sẽ thay thế lịch của bạn tại trường đó. Giữ mốc tuần 1 của lịch đang có để đồng bộ các trường.</p><p>Giảng viên đăng nhập bằng tài khoản do Admin cấp. Vào Cài đặt để đổi mật khẩu.</p></> : <><p>Quản lý danh mục Giảng viên (tại trang Quản lý GV & Phòng) và Phòng học của khoa. Sau đó tải file Kế hoạch mở lớp ở trang Xếp lịch của khoa để tự động xếp lịch.</p><p>Xuất danh sách tài khoản giảng viên ra file Excel để gửi cho các giảng viên đăng nhập.</p></>}</section>}
     <footer className="page-footer"><span>Campus · Không gian giảng dạy của bạn</span><span><i/>Hệ thống quản lý & xếp lịch tự động của khoa</span></footer></main></div>
     {selected && <LessonModal lesson={selected} onClose={() => setSelected(null)}/>}
     {toast && <div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button aria-label="Đóng thông báo" onClick={() => setToast('')}><X size={16}/></button></div>}
@@ -379,5 +382,5 @@ function WeekCalendar({ lessons, startDate, configs, onSelect }) {
 function LessonModal({ lesson, onClose }) {
   const ref = useRef(null);
   useEffect(() => { const dialog = ref.current; const previous = document.activeElement; dialog.showModal(); return () => { dialog.close(); previous?.focus(); }; }, []);
-  return <dialog className="modal" ref={ref} onCancel={onClose}><div className="modal-head"><h2>Chi tiết buổi dạy</h2><button className="icon-button" aria-label="Đóng" onClick={onClose}><X size={20}/></button></div><h3>{lesson.courseName}</h3><div className="detail-grid">{[['Đơn vị / Khoa', lesson.schoolName], ['Ngày', dateLabel(lesson.date)], ['Thời gian', `${clock(lesson.startTime)} – ${clock(lesson.endTime)}`], ['Tiết', `${lesson.startPeriod}–${lesson.endPeriod}`], ['Phòng', lesson.room]].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>{lesson.isConflict && <div role="alert" className="import-warning"><AlertTriangle size={18}/>{lesson.conflictReason || 'Buổi dạy bị trùng giờ.'}</div>}</dialog>;
+  return <dialog className="modal" ref={ref} onCancel={onClose}><div className="modal-head"><h2>Chi tiết buổi dạy</h2><button className="icon-button" aria-label="Đóng" onClick={onClose}><X size={20}/></button></div><h3>{lesson.courseName}</h3><div className="detail-grid">{[['Đơn vị / Khoa', lesson.schoolName], ['Ngày', dateLabel(lesson.date)], ['Thời gian', `${clock(lesson.startTime)} – ${clock(lesson.endTime)}`], ['Tiết', `${lesson.startPeriod}–{lesson.endPeriod}`], ['Phòng', lesson.room]].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>{lesson.isConflict && <div role="alert" className="import-warning"><AlertTriangle size={18}/>{lesson.conflictReason || 'Buổi dạy bị trùng giờ.'}</div>}</dialog>;
 }

@@ -17,7 +17,7 @@ public class AutoScheduleService {
     private final RoomRepository roomRepository;
     private final ScheduleService scheduleService;
     private final ScheduleWriteLock writeLock;
-    private static final int[] DEFAULT_START_PERIODS = {1, 4, 7, 10};
+    private static final int[] DEFAULT_START_PERIODS = {1, 4, 5, 7, 10};
 
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse generateSchoolWideSchedule(SchoolWideScheduleRequest request) {
@@ -57,7 +57,10 @@ public class AutoScheduleService {
         for (var course : request.getCourses()) {
             var quota = allocateClassesToTeachers(course.getTotalClassesToOpen(), course.getTeachers());
             int size = course.getClassSize() > 0 ? course.getClassSize() : 50;
-            int count = course.getNumPeriodsPerSession() > 0 ? course.getNumPeriodsPerSession() : 3;
+            int rawCount = course.getNumPeriodsPerSession() > 0 ? course.getNumPeriodsPerSession() : 3;
+            int theoryCount = Math.min(SchedulingPolicy.MAX_THEORY_CLASS_PERIODS_PER_DAY, rawCount);
+            int practiceCount = Math.max(SchedulingPolicy.MIN_PRACTICE_SESSION_PERIODS,
+                    Math.min(SchedulingPolicy.MAX_PRACTICE_SESSION_PERIODS, rawCount));
             int startWeek = course.getStartWeek() > 0 ? course.getStartWeek() : 1;
             String theoryWeeks = weeks(startWeek, request.getTotalWeeks());
             String cohort = course.getCohort() == null || course.getCohort().isBlank() ? "2024" : course.getCohort();
@@ -67,7 +70,7 @@ public class AutoScheduleService {
                 for (int n = 0; n < quota.get(id); n++) {
                     String group = String.format("Lớp %02d", sequence.merge(course.getCourseCode(), 1, Integer::sum));
                     var theory = placement(request, rooms, periods, occupied, teacher, size, false, course.getFixedDayOfWeek(),
-                            course.getFixedStartPeriod(), count, days, theoryWeeks, Set.of());
+                            course.getFixedStartPeriod(), theoryCount, days, theoryWeeks, Set.of());
                     if (theory == null) {
                         warnings.add("Không có phòng/giờ hợp lệ cho " + course.getCourseCode() + " - " + group + " - " + id);
                         continue;
@@ -75,8 +78,8 @@ public class AutoScheduleService {
                     names.put(id, teacher.getTeacherName());
                     var courses = byTeacher.computeIfAbsent(id, ignored -> new ArrayList<>());
                     recordClassSlot(result, courses, teacher, course, cohort, group, "Cả lớp", "THEORY", size,
-                            theory.room(), theory.day(), theory.start(), count, theoryWeeks, "Lý thuyết cả lớp", rooms.size());
-                    book(occupied, request, id, theory, count, theoryWeeks);
+                            theory.room(), theory.day(), theory.start(), theoryCount, theoryWeeks, "Lý thuyết cả lớp", rooms.size());
+                    book(occupied, request, id, theory, theoryCount, theoryWeeks);
                     days.add(theory.day());
                     theoryDaysByTeacher.computeIfAbsent(id, ignored -> new HashSet<>()).add(theory.day());
                     if (!Boolean.FALSE.equals(course.getHasPractice())) {
@@ -84,13 +87,12 @@ public class AutoScheduleService {
                         int phase = practicePhases.getOrDefault(id, firstPracticeWeek % 2);
                         if (firstPracticeWeek % 2 != phase) firstPracticeWeek++;
                         practicePhases.put(id, 1 - phase);
-                        pendingPractice.add(new PracticeDemand(teacher, course, cohort, group, size, count,
+                        pendingPractice.add(new PracticeDemand(teacher, course, cohort, group, size, practiceCount,
                                 firstPracticeWeek, days));
                     }
                 }
             }
         }
-        // Reserve every theory class before placing the two alternating practice lessons.
         for (var demand : pendingPractice) {
             var teacher = demand.teacher();
             int groups = Math.min(demand.size(), Math.max(2, (int) Math.ceil(demand.size() / 30.0)));
@@ -99,7 +101,6 @@ public class AutoScheduleService {
                 Placement practice = null;
                 String practiceWeeks = null;
                 int firstWeek = demand.firstWeek();
-                // Keep the class's alternating-week phase if its first pair is occupied.
                 for (; firstWeek + 2 <= request.getTotalWeeks(); firstWeek += 2) {
                     practiceWeeks = practiceWeeks(firstWeek, request.getTotalWeeks());
                     practice = placement(request, rooms, periods, occupied, teacher, subSize, true, null, null,
@@ -119,7 +120,6 @@ public class AutoScheduleService {
                 demand.days().add(practice.day());
             }
         }
-        // A partial plan is a preview only and never overwrites existing unscheduled classes.
         boolean saved = warnings.isEmpty() && !result.isEmpty();
         if (saved) for (var entry : byTeacher.entrySet()) {
             scheduleService.saveOrUpdateSchoolSchedule(SchoolUploadRequest.builder().teacherId(entry.getKey())
@@ -129,7 +129,7 @@ public class AutoScheduleService {
         return AutoScheduleResponse.builder().schoolId(schoolId).schoolName(request.getTargetSchool().getSchoolName())
                 .semesterStartDate(request.getSemesterStartDate()).periods(request.getTargetSchool().getPeriods())
                 .status(saved ? "SUCCESS" : "NOT_SAVED").saved(saved)
-                .message(saved ? "Đã xếp và lưu đầy đủ lịch toàn trường." : "Chưa lưu: không xếp được đầy đủ các lớp. Lịch cũ được giữ nguyên.")
+                .message(saved ? "Đã xếp và lưu đầy đủ lịch toàn khoa." : "Chưa lưu: không xếp được đầy đủ các lớp. Lịch cũ được giữ nguyên.")
                 .totalRoomsAvailable(rooms.size()).totalClassesScheduled(result.size()).scheduledClasses(result).unscheduledWarnings(warnings).build();
     }
 
@@ -213,12 +213,15 @@ public class AutoScheduleService {
         if (fixedDay != null) days.add(fixedDay);
         days.addAll(preferred);
         for (int day = 2; day <= 7; day++) days.add(day);
-        days.removeAll(excludedDays);
-        var starts = new LinkedHashSet<Integer>();
-        if (fixedStart != null) starts.add(fixedStart);
-        for (int start : DEFAULT_START_PERIODS) starts.add(start);
+        if (excludedDays != null) days.removeAll(excludedDays);
+
+        var rawStarts = new LinkedHashSet<Integer>();
+        if (fixedStart != null) rawStarts.add(fixedStart);
+        for (int start : DEFAULT_START_PERIODS) rawStarts.add(start);
+        var starts = SchedulingPolicy.candidateStartPeriods(rawStarts, count);
+
         for (int day : days) for (int start : starts) {
-            if (!ScheduleValidation.hasPeriods(periods, start, count)) continue;
+            if (!SchedulingPolicy.isContiguousValidSlot(periods, start, count)) continue;
             LocalTime begin = periods.get(start).getStart(), end = periods.get(start + count - 1).getEnd();
             for (var room : rooms) {
                 if (room.isLab() != lab || room.getCapacity() < size) continue;
@@ -324,6 +327,4 @@ public class AutoScheduleService {
                 .weekSchedule(weekSchedule)
                 .build());
     }
-
-
 }
