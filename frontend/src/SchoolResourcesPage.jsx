@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Plus, Trash2, Building2, Users, Save, Edit3 } from 'lucide-react';
+import { Download, Plus, Trash2, Building2, Users, Save, Edit3, CheckCircle2 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { api } from './schedule';
 import FormError from './FormError';

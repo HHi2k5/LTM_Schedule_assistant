@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Upload, Download, Calendar, CheckCircle2, AlertTriangle, Trash2, Search, UserPlus } from 'lucide-react';
+import { Upload, Download, Calendar, CheckCircle2, AlertTriangle, Plus, Trash2, Search, UserPlus } from 'lucide-react';
 import { api, addDays } from './schedule';
 import { planWorkbook } from './autoScheduleWorkbook';
 import { scheduledWorkbook } from './scheduleExport';
@@ -192,8 +192,8 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     try {
       validateSchool(schoolId, schoolName, startDate);
       validateFile(planFile, 'Kế hoạch mở lớp');
-      if (!savedTeachers.length) throw new Error('Khoa chưa có giảng viên nào. Vui lòng thêm giảng viên ở trang Quản lý Giảng viên & Phòng học.');
-      if (!savedRooms.length) throw new Error('Khoa chưa có phòng học nào. Vui lòng thêm phòng học ở trang Quản lý Giảng viên & Phòng học.');
+      if (!savedTeachers.length) throw new Error('Khoa chưa có giảng viên nào. Vui lòng thêm giảng viên ở trang Quản lý GV & Phòng.');
+      if (!savedRooms.length) throw new Error('Khoa chưa có phòng học nào. Vui lòng thêm phòng học ở trang Quản lý GV & Phòng.');
     } catch (err) {
       setError(err.message);
       return;
@@ -320,7 +320,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
 
           <h4>Danh sách các môn học / lớp học phân công cho giảng viên này</h4>
           {visitingForm.assignments.map((asg, idx) => (
-            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 75px 1.1fr 1.1fr 75px 85px 40px', gap: '0.4ynth', alignItems: 'end', marginBottom: '0.5rem', background: '#fff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 75px 1.1fr 1.1fr 75px 85px 40px', gap: '0.4rem', alignItems: 'end', marginBottom: '0.5rem', background: '#fff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
               <label>Mã môn <input required placeholder="61FIT3DBS" value={asg.courseCode} onChange={e => updateVisitingAssignment(idx, 'courseCode', e.target.value)} /></label>
               <label>Tên môn <input required placeholder="Cơ sở dữ liệu" value={asg.courseName} onChange={e => updateVisitingAssignment(idx, 'courseName', e.target.value)} /></label>
               <label>Khóa <input required placeholder="2024" value={asg.cohort} onChange={e => updateVisitingAssignment(idx, 'cohort', e.target.value)} /></label>
