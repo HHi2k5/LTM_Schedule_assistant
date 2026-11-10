@@ -74,8 +74,11 @@ public class ScheduleService {
                         .build());
 
         school.setSchoolName(request.getSchool().getSchoolName());
-        String assignedColor = pickTeacherColor(teacher.getTeacherId(), -1);
-        school.setColorCode(assignedColor);
+        // Giảng viên tự nhập lịch: giữ màu đã chọn. Lịch do khoa xếp/phân: dùng màu theo giảng viên như trước.
+        boolean personalUpload = request.getCourses() == null || request.getCourses().stream()
+                .noneMatch(dto -> dto.getSourceType() != null && DEPARTMENT_SOURCES.contains(dto.getSourceType()));
+        String teacherColor = pickTeacherColor(teacher.getTeacherId(), -1);
+        school.setColorCode(personalUpload ? validColor(request.getSchool().getColorCode(), teacherColor) : teacherColor);
 
         if (school.getPeriods() == null) {
             school.setPeriods(new HashSet<>());
@@ -169,9 +172,95 @@ public class ScheduleService {
                         "Không tìm thấy lịch của đơn vị " + schoolCode + " cho giảng viên " + teacherId));
 
         Teacher teacher = school.getTeacher();
-        teacher.getSchools().remove(school);
-        schoolRepository.delete(school);
+        // Giảng viên tự xóa: chỉ xóa môn cá nhân, luôn giữ lại lịch do khoa phân
+        if (!scheduleAccess.isAdmin() && school.getCourses() != null
+                && school.getCourses().stream().anyMatch(ScheduleService::isDepartmentCourse)) {
+            school.getCourses().removeIf(course -> !isDepartmentCourse(course));
+            schoolRepository.save(school);
+        } else {
+            teacher.getSchools().remove(school);
+            schoolRepository.delete(school);
+        }
         scheduleChanges.changed(teacher.getTeacherId());
+    }
+
+    private static final Set<String> DEPARTMENT_SOURCES = Set.of("WEEKLY_AUTO", "VISITING_AUTO");
+
+    static boolean isDepartmentCourse(TeachingCourse course) {
+        return course.getSourceType() != null && DEPARTMENT_SOURCES.contains(course.getSourceType());
+    }
+
+    private static boolean hasDepartmentCourses(School school) {
+        return school.getCourses() != null && school.getCourses().stream().anyMatch(ScheduleService::isDepartmentCourse);
+    }
+
+    private static String validColor(String color, String fallback) {
+        return color != null && color.matches("^#[0-9a-fA-F]{6}$") ? color : fallback;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonalCourseDTO> listTeacherCourses(String teacherId) {
+        scheduleAccess.requireTeacherAccess(teacherId);
+        Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId).orElse(null);
+        if (teacher == null || teacher.getSchools() == null) return List.of();
+        List<PersonalCourseDTO> result = new ArrayList<>();
+        for (School school : teacher.getSchools()) {
+            if (school.getCourses() == null) continue;
+            for (TeachingCourse course : school.getCourses()) {
+                result.add(PersonalCourseDTO.builder()
+                        .id(course.getId())
+                        .schoolId(school.getSchoolCode())
+                        .schoolName(school.getSchoolName())
+                        .courseCode(course.getCourseCode())
+                        .courseName(course.getCourseName())
+                        .room(course.getClassroom())
+                        .dayOfWeek(course.getDayOfWeek())
+                        .startPeriod(course.getStartPeriod())
+                        .numPeriods(course.getNumPeriods())
+                        .weekSchedule(course.getWeekSchedule())
+                        .sourceType(course.getSourceType())
+                        .departmentAssigned(isDepartmentCourse(course))
+                        .build());
+            }
+        }
+        result.sort(Comparator.comparing(PersonalCourseDTO::getSchoolId, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparingInt(PersonalCourseDTO::getDayOfWeek)
+                .thenComparingInt(PersonalCourseDTO::getStartPeriod)
+                .thenComparing(PersonalCourseDTO::getCourseName, Comparator.nullsLast(Comparator.naturalOrder())));
+        return result;
+    }
+
+    /** Xóa các môn cá nhân đã chọn; môn do khoa phân (WEEKLY_AUTO / VISITING_AUTO) luôn được giữ nguyên. */
+    @Transactional
+    public int deletePersonalCourses(String teacherId, List<Long> courseIds) {
+        if (teacherId == null || teacherId.isBlank()) throw new IllegalArgumentException("Thiếu mã giảng viên.");
+        scheduleAccess.requireTeacherAccess(teacherId);
+        if (courseIds == null || courseIds.isEmpty()) throw new IllegalArgumentException("Chưa chọn môn nào để xóa.");
+        writeLock.acquire();
+        Set<Long> ids = new HashSet<>(courseIds);
+        Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
+        int removed = 0;
+        if (teacher.getSchools() != null) {
+            for (School school : new ArrayList<>(teacher.getSchools())) {
+                if (school.getCourses() == null) continue;
+                int before = school.getCourses().size();
+                school.getCourses().removeIf(course -> course.getId() != null && ids.contains(course.getId())
+                        && !isDepartmentCourse(course));
+                int removedHere = before - school.getCourses().size();
+                if (removedHere == 0) continue;
+                removed += removedHere;
+                if (school.getCourses().isEmpty()) {
+                    teacher.getSchools().remove(school);
+                    schoolRepository.delete(school);
+                } else {
+                    schoolRepository.save(school);
+                }
+            }
+        }
+        if (removed == 0) throw new IllegalArgumentException("Không có môn cá nhân nào hợp lệ để xóa.");
+        scheduleChanges.changed(teacher.getTeacherId());
+        return removed;
     }
 
     @Transactional
@@ -246,10 +335,14 @@ public class ScheduleService {
             if (teacher.getSchools() == null) continue;
 
             for (School school : teacher.getSchools()) {
+                // Lịch toàn khoa: mỗi giảng viên một màu. Lịch cá nhân: trường tự nhập dùng màu giảng viên đã chọn khi nhập.
+                String lessonColor = isAllDepartment || hasDepartmentCourses(school)
+                        ? teacherDistinctColor
+                        : validColor(school.getColorCode(), teacherDistinctColor);
                 schoolConfigs.computeIfAbsent(school.getSchoolCode(), code -> SchoolConfigDTO.builder()
                         .schoolId(code)
                         .schoolName(school.getSchoolName())
-                        .colorCode(teacherDistinctColor)
+                        .colorCode(lessonColor)
                         .periods(school.getPeriods() == null ? List.of() : school.getPeriods().stream()
                                 .sorted(Comparator.comparingInt(SchoolPeriod::getPeriodNumber))
                                 .map(period -> new PeriodTimeDTO(period.getPeriodNumber(), period.getStartTime(), period.getEndTime()))
@@ -293,7 +386,7 @@ public class ScheduleService {
                                 weeklyLessons.add(LessonSlot.builder()
                                         .schoolId(school.getSchoolCode())
                                         .schoolName(isAllDepartment ? "GV: " + teacherLabel : school.getSchoolName())
-                                        .colorCode(teacherDistinctColor)
+                                        .colorCode(lessonColor)
                                         .courseName(displayCourse)
                                         .room(course.getClassroom())
                                         .dayOfWeek(course.getDayOfWeek())

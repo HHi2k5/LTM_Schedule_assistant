@@ -68,6 +68,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/upload-excel-teacher").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasRole("TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/schedule/personal-courses").hasRole("TEACHER")
+                .requestMatchers(HttpMethod.POST, "/api/schedule/personal-courses/delete").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/schedule/week/*", "/api/schedule/auth/me").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/schedule/events").hasAnyRole("TEACHER", "ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files", "/api/schedule/visiting-schedule").hasRole("ADMIN")

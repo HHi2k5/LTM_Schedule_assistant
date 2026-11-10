@@ -13,4 +13,10 @@ public class ScheduleAccess {
             throw new AccessDeniedException("Bạn không có quyền truy cập lịch của giảng viên này.");
         }
     }
+
+    public boolean isAdmin() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getPrincipal() instanceof AccountPrincipal account
+                && "ADMIN".equals(account.role());
+    }
 }

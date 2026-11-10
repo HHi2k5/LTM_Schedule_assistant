@@ -11,6 +11,7 @@ import SchoolWideCalendar from './SchoolWideCalendar';
 import TodayDashboard from './TodayDashboard';
 import SchoolResourcesPage from './SchoolResourcesPage';
 import AutoSchedulePage from './AutoSchedulePage';
+import PersonalCourseDeleteDialog from './PersonalCourseDeleteDialog';
 import { clampWeek } from './workflow';
 import { getAccessToken, setAccessToken } from './authSession';
 import { canImport, canSchedule, canVisit, defaultPage } from './permissions';
@@ -59,6 +60,7 @@ export default function App() {
   const [configs, setConfigs] = useState(() => stored('campus-period-configs', {}));
   const [storageError, setStorageError] = useState(false);
   const [liveStatus, setLiveStatus] = useState('connecting');
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const requestId = useRef(0);
   const loadedScope = useRef(null);
 
@@ -268,6 +270,16 @@ export default function App() {
               <Upload size={18}/>Nhập lịch cá nhân
             </button>
           )}
+          {canImport(authUser) && page === 'schedule' && (
+            <button
+              type="button"
+              className="button"
+              style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 size={17}/> Xóa lịch dạy cá nhân
+            </button>
+          )}
           {canSchedule(authUser) && page === 'schedule' && (
             <button
               type="button"
@@ -332,7 +344,7 @@ export default function App() {
               <button className="school-filter" style={{ flex: 1 }} onClick={() => setSchoolFilter(school.id)}>
                 {school.name}<ChevronRight size={15}/>
               </button>
-              {(canImport(authUser) || canSchedule(authUser)) && <button
+              {canSchedule(authUser) && <button
                 type="button"
                 className="icon-button"
                 title={`Xóa lịch ${school.name}`}
@@ -344,7 +356,7 @@ export default function App() {
           )) : <p className="rail-subtitle">Chưa có dữ liệu tuần này.</p>}
         </section>
         <section className="notice-card"><h2>Kiểm tra trùng giờ</h2><p className="rail-subtitle">{conflictCount ? `${conflictCount} buổi dạy trùng giờ. Mở buổi dạy để xem chi tiết.` : 'Các cảnh báo được tính từ giờ thực tế.'}</p></section>
-        {canImport(authUser) && <section className="tip-card"><Upload size={21}/><h3>Đổi hoặc thêm lịch trường</h3><p>Bạn có thể bấm biểu tượng thùng rác cạnh tên trường để xóa lịch cũ hoặc tải file Excel mới đè lên.</p><button onClick={() => navigate('import')}>Nhập lịch <ChevronRight size={16}/></button></section>}
+        {canImport(authUser) && <section className="tip-card"><Upload size={21}/><h3>Đổi hoặc thêm lịch trường</h3><p>Bấm nút "Xóa lịch dạy cá nhân" để chọn môn cần xóa (lịch khoa phân được giữ nguyên), hoặc tải file Excel mới đè lên.</p><button onClick={() => navigate('import')}>Nhập lịch <ChevronRight size={16}/></button></section>}
         {canSchedule(authUser) && (
           <section className="tip-card">
             <Sparkles size={21}/>
@@ -404,6 +416,11 @@ export default function App() {
     {page === 'help' && <section className="standalone-panel help-panel"><h2>Hướng dẫn sử dụng</h2>{canImport(authUser) ? <><p>Tải mẫu Excel trong Nhập lịch. Điền sheet MonHoc theo 9 cột và sheet TietHoc với giờ thực của trường. Kiểm tra dữ liệu và xác nhận trước khi lưu.</p><p>Nhập lại cùng mã trường sẽ thay thế lịch của bạn tại trường đó. Giữ mốc tuần 1 của lịch đang có để đồng bộ các trường.</p><p>Giảng viên đăng nhập bằng tài khoản do Admin cấp. Vào Cài đặt để đổi mật khẩu.</p></> : <><p>Quản lý danh mục Giảng viên (tại trang Quản lý GV & Phòng) và Phòng học của khoa. Sau đó tải file Kế hoạch mở lớp ở trang Xếp lịch của khoa để tự động xếp lịch.</p><p>Xuất danh sách tài khoản giảng viên ra file Excel để gửi cho các giảng viên đăng nhập.</p></>}</section>}
     <footer className="page-footer"><span>Campus · Không gian giảng dạy của bạn</span><span><i/>Hệ thống quản lý & xếp lịch tự động của khoa</span></footer></main></div>
     {selected && <LessonModal lesson={selected} onClose={() => setSelected(null)}/>}
+    {deleteOpen && canImport(authUser) && <PersonalCourseDeleteDialog
+      teacherId={authUser.teacherId}
+      onClose={() => setDeleteOpen(false)}
+      onDeleted={message => { setDeleteOpen(false); setRevision(value => value + 1); setToast(message); }}
+    />}
     {toast && <div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button aria-label="Đóng thông báo" onClick={() => setToast('')}><X size={16}/></button></div>}
   </div>;
 }

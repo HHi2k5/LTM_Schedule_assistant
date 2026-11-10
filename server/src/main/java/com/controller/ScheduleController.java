@@ -73,6 +73,23 @@ public class ScheduleController {
                 "message", "Đã xóa toàn bộ lịch cũ của trường " + schoolId + "!"
         ));
     }
+    // 2a. Giảng viên xem danh sách môn để chọn xóa (môn khoa phân được đánh dấu, không xóa được)
+    @GetMapping("/personal-courses")
+    public ResponseEntity<List<com.dto.PersonalCourseDTO>> listPersonalCourses(@RequestParam("teacherId") String teacherId) {
+        return ResponseEntity.ok(scheduleService.listTeacherCourses(teacherId));
+    }
+
+    // 2a'. Giảng viên xóa các môn cá nhân đã chọn (lịch khoa phân luôn được giữ)
+    @PostMapping("/personal-courses/delete")
+    public ResponseEntity<?> deletePersonalCourses(@RequestBody com.dto.PersonalCourseDeleteRequest request) {
+        int removed = scheduleService.deletePersonalCourses(request.teacherId(), request.courseIds());
+        return ResponseEntity.ok(Map.of(
+                "status", "SUCCESS",
+                "removed", removed,
+                "message", "Đã xóa " + removed + " môn cá nhân. Lịch khoa phân được giữ nguyên."
+        ));
+    }
+
 // 2b. Admin xóa toàn bộ lịch đã xếp của Khoa (chỉ khi Admin bấm xóa mới mất)
     @DeleteMapping("/department-schedule")
     public ResponseEntity<?> deleteDepartmentSchedule(@RequestParam(defaultValue = "PTIT") String schoolId) {
