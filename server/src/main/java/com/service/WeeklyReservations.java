@@ -33,6 +33,7 @@ final class WeeklyReservations {
     private record GroupKey(String school, String group) {}
     private record GeneratedDay(String teacher, boolean practice, DayOfWeek day) {}
     private record TeacherHalfDay(String teacher, LocalDate date, int halfDay) {}
+    private record CourseDay(String school, String course, LocalDate date) {}
 
     private final List<Reservation> journal = new ArrayList<>();
     private final Map<TeacherDay, List<Reservation>> teachers = new HashMap<>();
@@ -44,8 +45,23 @@ final class WeeklyReservations {
     private final Map<GroupKey, List<LocalDate>> practiceGroupDates = new HashMap<>();
     private final Map<TeacherDay, Map<String, Integer>> teacherDayCourses = new HashMap<>();
     private final Map<TeacherHalfDay, Map<String, Integer>> teacherHalfDayCourses = new HashMap<>();
+    private final Map<CourseDay, List<Reservation>> courseDays = new HashMap<>();
 
     int size() { return journal.size(); }
+
+    /**
+     * Số buổi của các lớp/nhóm khác thuộc cùng môn đang diễn ra trùng giờ. Khi lớp chưa có giảng viên,
+     * rải các lớp cùng môn sang khung giờ khác nhau giúp bộ môn phân công được với ít giảng viên hơn.
+     */
+    int sameCourseOverlaps(String school, String courseCode, String group, LocalDate date, LocalTime start, LocalTime end) {
+        String code = normalizeCourse(courseCode);
+        if (code.isEmpty()) return 0;
+        int count = 0;
+        for (var r : courseDays.getOrDefault(new CourseDay(school, code, date), List.of())) {
+            if (!Objects.equals(group, r.group()) && overlaps(r, start, end)) count++;
+        }
+        return count;
+    }
 
     void add(Reservation r) {
         journal.add(r);
@@ -72,6 +88,7 @@ final class WeeklyReservations {
 
         String normalizedCourse = normalizeCourse(r.courseCode());
         if (!normalizedCourse.isEmpty()) {
+            append(courseDays, new CourseDay(r.school(), normalizedCourse, r.date()), r);
             teacherDayCourses.computeIfAbsent(td, ignored -> new HashMap<>())
                     .merge(normalizedCourse, 1, Integer::sum);
             for (int half : SchedulingPolicy.occupiedHalfDays(r.start(), r.end())) {
@@ -114,6 +131,7 @@ final class WeeklyReservations {
             }
             String normalizedCourse = normalizeCourse(r.courseCode());
             if (!normalizedCourse.isEmpty()) {
+                removeLast(courseDays, new CourseDay(r.school(), normalizedCourse, r.date()));
                 decrementCourseCount(teacherDayCourses, td, normalizedCourse);
                 for (int half : SchedulingPolicy.occupiedHalfDays(r.start(), r.end())) {
                     decrementCourseCount(teacherHalfDayCourses, new TeacherHalfDay(r.teacher(), r.date(), half), normalizedCourse);

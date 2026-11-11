@@ -29,11 +29,14 @@ public class TokenFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 teachers.findById(tokens.subject(header.substring(7))).filter(t -> t.getUsername() != null)
-                        .filter(t -> "TEACHER".equals(t.getRole()) || "ADMIN".equals(t.getRole()))
+                        .filter(t -> "TEACHER".equals(t.getRole()) || "ADMIN".equals(t.getRole()) || "DEPT_HEAD".equals(t.getRole()))
                         .ifPresent(t -> {
-                            var principal = new AccountPrincipal(t.getTeacherId(), t.getUsername(), t.getRole());
-                            var auth = new UsernamePasswordAuthenticationToken(principal, null,
-                                    List.of(new SimpleGrantedAuthority("ROLE_" + t.getRole())));
+                            var principal = new AccountPrincipal(t.getTeacherId(), t.getUsername(), t.getRole(), t.getDepartmentId());
+                            // Trưởng bộ môn vẫn là giảng viên: giữ toàn bộ quyền của TEACHER và thêm quyền phân công.
+                            var authorities = "DEPT_HEAD".equals(t.getRole())
+                                    ? List.of(new SimpleGrantedAuthority("ROLE_DEPT_HEAD"), new SimpleGrantedAuthority("ROLE_TEACHER"))
+                                    : List.of(new SimpleGrantedAuthority("ROLE_" + t.getRole()));
+                            var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
                             SecurityContextHolder.getContext().setAuthentication(auth);
                         });
             } catch (JwtException | IllegalArgumentException exception) {

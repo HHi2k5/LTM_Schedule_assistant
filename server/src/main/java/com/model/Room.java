@@ -22,7 +22,7 @@ public class Room {
     private String roomName;
 
     @Column(name = "room_type", nullable = false, length = 30)
-    private String roomType; // THEORY_LARGE, THEORY_MEDIUM, THEORY_STANDARD, LAB_PRACTICE
+    private String roomType; // Mã loại phòng trong bảng room_types (VD: LY_THUYET, MAY_CHIEU, PHONG_MAY, THUC_HANH)
 
     @Column(name = "capacity", nullable = false)
     private int capacity;
@@ -35,4 +35,8 @@ public class Room {
 
     @Column(name = "school_code", length = 50)
     private String schoolCode;
+
+    /** Ghi chú tự do, VD: "Sức chứa 30 nhưng chỉ có 20 máy". */
+    @Column(name = "note", length = 500)
+    private String note;
 }

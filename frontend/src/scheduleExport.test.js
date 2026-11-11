@@ -89,3 +89,33 @@ test('invalid result metadata and period references prevent misleading exports',
   }
   assert.throws(() => scheduledWorkbook({ ...result, periods: [{ period: 1, start: '07:99', end: '08:50' }] }));
 });
+
+const missingClass = { classId: 'MISSING:2024:LT:1', courseCode: 'MISSING', courseName: '=Missing course',
+  cohort: '2024', classGroup: 'Lớp 01', sessionType: 'THEORY', teacherId: null,
+  requiredPeriods: 30, scheduledPeriods: 0, missingPeriods: 30, reasonCode: 'NO_TEACHER', reason: 'Chưa phân công giảng viên.' };
+
+test('partial schedule exports both actual lessons and every unassigned class with its reason', async () => {
+  const { workbook } = scheduledWorkbook({ ...result, saved: true, status: 'PARTIAL_SUCCESS',
+    unscheduledClasses: [missingClass], unscheduledWarnings: ['Thiếu giảng viên cho MISSING.'] });
+  const loaded = new ExcelJS.Workbook();
+  await loaded.xlsx.load(await workbook.xlsx.writeBuffer());
+  assert.equal(loaded.getWorksheet('MonHoc').rowCount, 3);
+  const missing = loaded.getWorksheet('LopChuaXep');
+  assert.equal(missing.rowCount, 2);
+  assert.deepEqual(missing.getRow(2).values.slice(1), [missingClass.classId, 'MISSING', '=Missing course',
+    '2024', 'Lớp 01', 'LT', 30, 30, missingClass.reason]);
+  assert.equal(missing.getCell('C2').type, ExcelJS.ValueType.String);
+  assert.equal(loaded.getWorksheet('CanhBao').getCell('A2').value, 'Thiếu giảng viên cho MISSING.');
+});
+
+test('an all-unassigned result can still be downloaded without inventing scheduled lessons', async () => {
+  const { workbook, rowCount, missingCredits } = scheduledWorkbook({ ...result, saved: false, status: 'NOT_SAVED',
+    scheduledClasses: [], unscheduledClasses: [missingClass] });
+  assert.equal(rowCount, 0);
+  assert.equal(missingCredits, false);
+  const loaded = new ExcelJS.Workbook();
+  await loaded.xlsx.load(await workbook.xlsx.writeBuffer());
+  assert.equal(loaded.getWorksheet('MonHoc').rowCount, 1);
+  assert.equal(loaded.getWorksheet('LopChuaXep').rowCount, 2);
+  assert.equal(loaded.getWorksheet('LopChuaXep').getCell('B2').value, 'MISSING');
+});

@@ -10,3 +10,8 @@ export function setAccessToken(token) {
     else globalThis.sessionStorage?.removeItem('campus-access-token');
   } catch { /* Keep the session in memory when browser storage is unavailable. */ }
 }
+
+export function expireSession() {
+  setAccessToken('');
+  globalThis.window?.dispatchEvent(new Event('campus-auth-expired'));
+}

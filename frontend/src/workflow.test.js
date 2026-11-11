@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { templateWorkbook, parseWorkbook } from './excel.js';
-import { validateAutoResult, validateNewPassword, validateManual, validateFile, firstActiveWeek, clampWeek } from './workflow.js';
+import { validateAutoResult, validateNewPassword, validateManual, validateFile, firstActiveWeek, clampWeek, unscheduledClasses } from './workflow.js';
 import { canVisit } from './permissions.js';
 import { api, calendarFile, clock, minutes } from './schedule.js';
 import { setAccessToken, getAccessToken } from './authSession.js';
@@ -66,11 +66,21 @@ test('result contract distinguishes saved and preview, rejects ambiguous success
   const context = { schoolId: 'A', schoolName: 'School A', semesterStartDate: '2026-08-10', scheduledClasses: [{ teacherId: 'GV01', weekSchedule: '---1' }] };
   assert.equal(validateAutoResult({ ...context, saved: false, status: 'NOT_SAVED' }).saved, false);
   assert.equal(validateAutoResult({ ...context, saved: true, status: 'SUCCESS' }).saved, true);
+  assert.equal(validateAutoResult({ ...context, saved: true, status: 'PARTIAL_SUCCESS' }).saved, true);
+  assert.throws(() => validateAutoResult({ ...context, saved: false, status: 'PARTIAL_SUCCESS' }));
+  assert.throws(() => validateAutoResult({ ...context, saved: true, status: 'PARTIAL_SUCCESS', scheduledClasses: [] }));
   for (const flags of [{ status: 'SUCCESS' }, { saved: false, status: 'SUCCESS' }, { saved: 'true', status: 'SUCCESS' }]) assert.throws(() => validateAutoResult({ ...context, ...flags }));
   assert.equal(firstActiveWeek([...context.scheduledClasses, { teacherId: 'GV02', weekSchedule: '1' }], 'GV01'), 4);
   assert.equal(clampWeek(101), 100);
   assert.equal(canVisit({ role: 'ADMIN' }, 'accounts'), false);
   assert.equal(canVisit({ role: 'TEACHER' }, 'accounts'), false);
+});
+
+test('unscheduled classes are available for partial success and results with no teacher assignments', () => {
+  const missing = { classId: 'A:LT', missingPeriods: 30, reasonCode: 'NO_TEACHER' };
+  assert.deepEqual(unscheduledClasses({ unscheduledClasses: [missing] }), [missing]);
+  assert.deepEqual(unscheduledClasses({ classWorkloads: [{ missingPeriods: 0 }, missing] }), [missing]);
+  assert.deepEqual(unscheduledClasses(null), []);
 });
 
 test('password byte limit and upload boundaries reject invalid input', () => {

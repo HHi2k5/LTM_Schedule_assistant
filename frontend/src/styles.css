@@ -149,6 +149,60 @@
 .template-actions{display:flex;gap:8px;flex-wrap:wrap}.import-fields input[readonly]{background:#f5f8f6;color:#647b6c}
 .import-panel .file-field{display:flex;flex-direction:column;gap:10px}
 .import-panel .file-template-button{align-self:flex-start}
+.schedule-live-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 10px; color: #86938c; }
+.schedule-live-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.schedule-live-status.connected { color: #177c62; }
+.auto-panel { min-width: 0; width: 100%; }
+.auto-panel > form, .auto-panel .panel-title > div { min-width: 0; }
+.auto-panel .button { white-space: normal; max-width: 100%; }
+.auto-panel .file-field > div { flex-wrap: wrap; }
+.auto-panel input, .auto-panel select { max-width: 100%; }
+.auto-panel .visiting-assignment { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) 75px minmax(0, 1.1fr) minmax(0, 1.1fr) 75px 85px 40px; gap: .4rem; align-items: end; margin-bottom: .5rem; background: #fff; padding: .5rem; border-radius: 6px; border: 1px solid #e2e8f0; }
+.auto-panel .visiting-assignment label { min-width: 0; }
+@media(max-width:900px) { .auto-panel .visiting-assignment { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .teacher-picker{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:22px}.teacher-picker label{max-width:240px}.teacher-picker .muted-text{padding-bottom:9px}.school-color{width:8px;height:40px;border-radius:5px;flex-shrink:0}.school-filter{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:14px 0;border:0;border-bottom:1px solid var(--border);background:transparent;text-align:left;font-size:11px}.load-error{display:flex;flex-direction:column;align-items:center;gap:16px;padding:55px 20px;text-align:center;color:#a55734;line-height:1.8}.axis-reference{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--border);color:#768b80;font-size:10px}.axis-reference label{display:flex;align-items:center;gap:8px}.axis-reference select{max-width:220px;border:1px solid var(--border);border-radius:5px;background:white;padding:6px;font:inherit}.axis-reference small{font-size:9px}.imported-session{color:var(--school-color);background:color-mix(in srgb,var(--school-color) 11%,white);padding:6px 5px;gap:4px;min-height:0}.imported-session .session-time,.imported-session .session-code,.imported-session .session-room{color:inherit}.imported-session strong{overflow-wrap:anywhere}.imported-session.has-conflict{outline:1px solid #cf7939;outline-offset:-1px}.conflict-label{font-size:9px;display:flex;gap:4px;align-items:center;color:#a55734}.import-fields{border:0;padding:0;margin:20px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.import-fields label{min-width:0}.import-fields small{font-size:10px;font-weight:400;line-height:1.7;color:#86998d}.import-fields input[type=color]{height:40px;width:100%;padding:5px}.file-field{grid-column:1/-1;padding:22px;background:#f5faf7;border:1px dashed #9bc3ad;border-radius:9px}.file-field input{background:white;width:100%}.import-steps{display:flex;gap:16px;flex-wrap:wrap;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-size:11px;color:#61826c}.import-warning{display:flex;align-items:flex-start;gap:10px;background:#fff7eb;color:#8d5c28;border:1px solid #f0dfc5;border-radius:8px;padding:15px;margin:18px 0;line-height:1.8;font-size:12px;overflow-wrap:anywhere}.import-warning>svg{flex-shrink:0;margin-top:2px}.import-warning p{margin:0}.import-warning small{display:block;line-height:1.8}.checkbox-label{display:flex;flex-direction:row;align-items:flex-start;gap:10px;font-size:12px;line-height:1.8;cursor:pointer;margin:14px 0}.checkbox-label input{flex-shrink:0;margin-top:4px}.import-guide{margin:25px 0;font-size:12px;line-height:1.9;color:#6d8475}.import-guide summary{cursor:pointer;font-weight:600}.import-guide p{margin-top:12px}.import-preview{margin-top:28px;padding-top:24px;border-top:1px solid var(--border)}.import-preview h2{display:flex;align-items:center;gap:8px}.import-preview .panel-title p{margin-top:10px}.table-scroll{overflow:auto;margin:18px 0;max-height:400px}.table-scroll table{border-collapse:collapse;text-align:left;width:100%;font-size:11px;white-space:nowrap}.table-scroll caption{text-align:left;font-weight:600;padding:10px 0;color:#42634f}.table-scroll th,.table-scroll td{padding:12px;border-bottom:1px solid var(--border)}.table-scroll th{background:#f2f7f4;position:sticky;top:0}.table-scroll code{font-size:12px}.import-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:22px}.import-panel .panel-title{align-items:flex-start}.import-panel .panel-title p{margin-top:8px}.imported-calendar .time-axis>span{font-weight:600}.import-panel{max-width:1100px}
 @media(max-width:650px){.import-fields{grid-template-columns:1fr}.file-field{grid-column:auto;padding:14px}.import-steps{gap:10px;font-size:10px}.import-actions{flex-direction:column}.import-actions button{justify-content:center}.teacher-picker .muted-text{width:100%}.axis-reference select{max-width:180px}.import-warning{font-size:11px}.import-fields{gap:15px}}
+
+/* Department timetable: shared time rows, full-width lessons within each day. */
+.school-wide-layout { grid-template-columns: minmax(0, 1fr); }
+.school-wide-layout .right-rail { display: none; }
+.school-wide-layout .calendar-panel { min-width: 0; }
+.department-calendar-note { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; padding: 12px 20px; border-top: 1px solid var(--border); color: #687d71; background: #f8faf9; font-size: 11px; line-height: 1.6; }
+.department-calendar-note > span:first-child { display: inline-flex; align-items: center; gap: 7px; }
+.department-calendar-note i { width: 8px; height: 8px; border-radius: 50%; background: #177c62; }
+.department-calendar-scroll { overflow: auto; max-height: 75vh; scrollbar-color: #b3c4b9 #f3f6f4; scrollbar-width: auto; isolation: isolate; }
+.department-calendar-scroll:focus-visible { outline: 2px solid #61bda3; outline-offset: -2px; }
+.department-timetable { width: 100%; min-width: 1400px; table-layout: fixed; border-collapse: separate; border-spacing: 0; text-align: left; }
+.department-time-col { width: 98px; }
+.department-caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.department-timetable th, .department-timetable td { border-top: 1px solid #dfe7e2; border-right: 1px solid #e5ebe7; }
+.department-timetable tr > :last-child { border-right: 0; }
+.department-timetable thead th { position: sticky; top: 0; z-index: 2; padding: 11px 9px; background: #f4f8f5; color: #3b5547; text-align: center; }
+.department-timetable thead th > span { display: block; font-size: 12px; font-weight: 600; }
+.department-timetable thead th > time { display: block; margin-top: 5px; font-size: 18px; font-weight: 650; letter-spacing: -.4px; }
+.department-timetable thead .department-corner { left: 0; z-index: 4; color: #677d6f; font-size: 11px; }
+.department-timetable .department-time { position: sticky; left: 0; z-index: 1; vertical-align: top; padding: 16px 9px; background: #f7faf8; text-align: center; color: #476253; font-size: 12px; font-weight: 600; }
+.department-time time, .department-time > span { display: block; }
+.department-time > span { color: #95a49b; font-size: 10px; margin: 2px 0; }
+.department-timetable td { padding: 5px; vertical-align: top; background: white; }
+.department-timetable td.department-weekend { background: #fafbf9; }
+.department-cell { display: flex; flex-direction: column; gap: 4px; min-height: 72px; }
+.department-lesson { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--teacher-color) 20%, #e4eae6); border-left: 3px solid var(--teacher-color); border-radius: 5px; background: color-mix(in srgb, var(--teacher-color) 7%, white); text-align: left; color: #293e33; line-height: 1.45; }
+.department-lesson:hover { background: color-mix(in srgb, var(--teacher-color) 12%, white); box-shadow: 0 2px 8px #1f4c3310; }
+.department-lesson > strong { font-size: 12px; font-weight: 650; overflow-wrap: break-word; }
+.department-teacher { font-size: 11px; color: #596f60; overflow-wrap: break-word; }
+.department-lesson-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 3px 7px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--teacher-color) 15%, transparent); font-size: 10px; color: #607868; }
+.department-lesson-meta b { font-weight: 650; color: #3b5547; }
+.department-vacant { display: block; margin: 22px auto; color: #c7d2cb; font-size: 14px; }
+.department-lesson.has-conflict { border-color: #d9a275; }
+.department-conflict { display: flex; align-items: flex-start; gap: 5px; color: #97531a; font-size: 10px; }
+.department-conflict svg { flex-shrink: 0; margin-top: 2px; }
+@media (max-width: 650px) {
+  .school-wide-layout .calendar-toolbar, .school-wide-layout .calendar-toolbar h2 { flex-wrap: wrap; }
+  .department-calendar-note { padding: 10px 12px; font-size: 10px; }
+  .department-time-col { width: 82px; }
+  .department-timetable { min-width: 1384px; }
+  .department-timetable .department-time { padding: 16px 6px; font-size: 11px; }
+}
+.delete-course-modal{max-width:620px}.delete-course-list{display:flex;flex-direction:column;gap:14px;max-height:55vh;overflow:auto;margin:16px 0}.delete-course-group{border:1px solid var(--border);border-radius:9px;overflow:hidden}.delete-course-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border);cursor:pointer;font-size:12px}.delete-course-row:first-child{border-top:0}.delete-course-row>span:not(.badge){flex:1;min-width:0}.delete-course-row strong{display:block;font-weight:600;line-height:1.6;overflow-wrap:anywhere}.delete-course-row small{display:block;color:#8b9890;margin-top:2px}.delete-course-row input{flex-shrink:0;width:16px;height:16px}.delete-course-row.group-row{background:#f5faf7}.delete-course-row.locked{cursor:not-allowed;background:#fafbfb;color:#8b9890}.badge.locked{background:#eef2f7;color:#5b6b82;gap:4px;align-items:center}.button.danger{background:#dc2626;border-color:#dc2626;color:#fff}.button.danger:hover{background:#b91c1c}.delete-confirm-list{margin:14px 0;padding-left:18px;max-height:40vh;overflow:auto;font-size:12px;line-height:1.8}.delete-confirm-list small{display:block;color:#8b9890}

@@ -1,4 +1,4 @@
-import { getAccessToken, setAccessToken } from './authSession.js';
+import { expireSession, getAccessToken } from './authSession.js';
 export const dayNames = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
 
 export const minutes = value => {
@@ -63,11 +63,15 @@ export function layoutLessons(lessons) {
   return result;
 }
 
-export async function api(path, options = {}) {
+export function apiUrl(path) {
   const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) 
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '') 
     : '';
-  const fullUrl = `${baseUrl}/api/schedule${path.startsWith('/') ? path : `/${path}`}`;
+  return `${baseUrl}/api/schedule${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+export async function api(path, options = {}) {
+  const fullUrl = apiUrl(path);
   let response;
   try { 
     const headers = new Headers(options.headers);
@@ -87,8 +91,7 @@ export async function api(path, options = {}) {
   }
   if (!response.ok) {
     if (response.status === 401 && !['/auth/login', '/auth/register'].includes(path)) {
-      setAccessToken('');
-      globalThis.window?.dispatchEvent(new Event('campus-auth-expired'));
+      expireSession();
     }
     const detail = data?.message || data?.detail || data?.error;
     const messages = { 400: 'Dữ liệu không hợp lệ. Kiểm tra thông tin đã nhập.', 401: 'Phiên đăng nhập hết hạn hoặc thông tin đăng nhập không đúng.', 403: 'Tài khoản không có quyền thực hiện thao tác này.', 404: 'Không tìm thấy hồ sơ hoặc lịch được yêu cầu.', 409: 'Dữ liệu xung đột với thông tin hiện có. Kiểm tra lại trước khi gửi.', 413: 'File vượt giới hạn dung lượng cho phép.', 500: 'Máy chủ gặp lỗi. Thử lại sau; nếu vừa lưu lịch, hãy tải lại lịch để kiểm tra.' };

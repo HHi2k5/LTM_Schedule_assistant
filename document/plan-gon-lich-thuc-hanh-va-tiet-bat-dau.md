@@ -2,7 +2,9 @@
 
 Ngày lập: 01/11/2026.
 
-Trạng thái: đã cập nhật theo yêu cầu mới nhất, chưa triển khai thuật toán. Chuyển từ tiết 5 xuống tiết 7 khi buổi dài hơn 1 tiết; TH ưu tiên cách 14 ngày, dự phòng tối thiểu 7 ngày. Ưu tiên gom cùng môn cho GV theo buổi/ngày; mỗi lớp LT tối đa 3 tiết/ngày, mỗi buổi TH dài 3–4 tiết.
+Trạng thái: tài liệu quy tắc đã chốt và yêu cầu bổ sung; phần xử lý thiếu GV tại mục 8 đã được triển khai trong mã nguồn. Chuyển từ tiết 5 xuống tiết 7 khi buổi dài hơn 1 tiết; TH ưu tiên cách 14 ngày, dự phòng tối thiểu 7 ngày. Ưu tiên gom cùng môn cho GV theo buổi/ngày; mỗi lớp LT tối đa 3 tiết/ngày, mỗi buổi TH dài 3–4 tiết.
+
+Cập nhật yêu cầu xử lý thiếu GV: lớp chưa phân công được GV không chặn các lớp khác. Phần xử lý tiếp tục xếp lịch, thông báo và xuất Excel được ghi riêng tại mục 8; mục đó thay quy tắc cũ không lưu toàn bộ khi chỉ một lớp chưa xếp đủ.
 
 Người dùng đã làm rõ: trần 3 tiết/ngày chỉ áp dụng cho lớp LT, không áp vào buổi TH 3–4 tiết. Việc gom nhiều lớp cùng môn cho một GV có ưu tiên cao hơn đề xuất cũ “một nhóm TH/GV/ngày”.
 
@@ -207,3 +209,17 @@ Kế hoạch không cần migration chỉ để kiểm tra tiết đầu và kho
 6. Kiểm chứng Docker và ghi nhận kết quả thực tế.
 
 Hoàn thành khi mỗi lớp LT mới không quá 3 tiết/ngày, mỗi buổi TH dài 3–4 tiết, đúng tổng khối lượng và khoảng cách TH đã chốt, không có buổi nhiều tiết bắt đầu tiết 5, ưu tiên gom môn cho GV/ngày/buổi được thể hiện trong cách chọn phương án, và kết quả lưu/xuất khớp lịch đã kiểm tra. Phạm vi kiểm soát lớp phải đúng với định danh có trong dữ liệu; chưa coi là kiểm soát lớp hành chính xuyên môn nếu chưa bổ sung ánh xạ.
+
+## 8. Bổ sung: tiếp tục xếp khi thiếu giảng viên và tải kết quả
+
+Theo yêu cầu mới, thiếu GV là kết quả của từng lớp/nhóm, không phải lỗi làm hủy toàn bộ kế hoạch:
+
+- [Đọc Excel](../server/src/main/java/com/service/WeeklyPlanExcelReader.java) giữ lại dòng chưa có GV với danh sách ứng viên rỗng. Các lỗi định dạng, ngày hoặc số liệu không hợp lệ vẫn được kiểm tra như trước.
+- [Bộ xếp lịch](../server/src/main/java/com/service/WeeklyScheduleEngine.java) xử lý mọi lớp/nhóm. Chỉ giữ chỗ và lưu một lớp khi lớp đó đã xếp đủ tổng tiết; lớp thử dở được hoàn tác để không chặn giờ GV/phòng của lớp sau.
+- Kết quả có `unscheduledClasses` với mã môn, tên học phần, khóa, lớp/nhóm, LT/TH, số tiết thiếu, mã lý do và mô tả. Phân biệt `NO_TEACHER`, `NO_ROOM` và `NO_AVAILABLE_SLOT`.
+- Có lớp xếp đủ và có lớp chưa xếp: lưu những lớp đã xếp đủ, trả `saved=true`, `status=PARTIAL_SUCCESS`. Không có lớp nào xếp đủ: `saved=false`, `status=NOT_SAVED`, không thay lịch đang lưu. Lỗi vi phạm điều kiện bắt buộc trong kết quả vẫn chặn lưu.
+- [Màn hình xếp lịch](../frontend/src/AutoSchedulePage.jsx) giữ kết quả mở sau khi chạy, hiển thị bảng lớp chưa xếp và lý do; hỗ trợ xem TKB của các lớp đã lưu.
+- [Xuất Excel](../frontend/src/scheduleExport.js) có lịch đã xếp trong `MonHoc`, bảng giờ trong `TietHoc`, danh sách chưa xếp trong `LopChuaXep` và cảnh báo trong `CanhBao`. Vẫn tải được báo cáo khi toàn bộ lớp đều thiếu GV; không tạo buổi học giả cho các lớp này.
+- Kiểm thử backend bao gồm đọc file thiếu GV nhưng môn khác vẫn được lưu, trọng số 0, hết giờ, thiếu phòng, hoàn tác lớp thử dở và toàn bộ lớp thiếu GV. Kiểm thử trình duyệt bao gồm trạng thái lưu một phần, không có phân công nào, bảng cảnh báo và tải/readback Excel trên desktop/mobile.
+
+Kiểm chứng phần bổ sung: 6 ca backend qua; hai tình huống lưu một phần và toàn bộ lớp thiếu GV đều qua trên desktop và mobile, bao gồm tải và đọc lại file XLSX. Build frontend đạt. Kiểm thử trình duyệt dùng API mô phỏng, không ghi dữ liệu thử vào lịch khoa đang chạy. Người dùng xác nhận hai thay đổi là chủ đích: mẫu mở lớp tách dòng LT/TH với một cột số tiết, và ADMIN vào trang lịch giảng dạy mặc định. Đã cập nhật kỳ vọng kiểm thử tương ứng; toàn bộ 32/32 test frontend qua.

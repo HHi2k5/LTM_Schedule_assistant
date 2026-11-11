@@ -22,6 +22,9 @@ public class CourseDemandDTO {
     // Optional syllabus limit; null means use the actual LAB capacity.
     private Integer practiceGroupSize;
     @Builder.Default private String practiceMode = "FLEXIBLE";
+    // Mã loại phòng môn học yêu cầu (lấy từ danh mục môn); null = phòng LT/TH bất kỳ.
+    private String theoryRoomType;
+    private String practiceRoomType;
     private Integer credits;
     private String stt;                    // STT dòng trong kế hoạch mở lớp
     private String courseCode;             // VD: "61FIT3DBS"

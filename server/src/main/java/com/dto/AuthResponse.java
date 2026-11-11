@@ -18,4 +18,7 @@ public class AuthResponse {
     private String username;
     private String role;
     private String semesterStartDate;
+    private Long departmentId;
+    private String departmentName;
+    private String teacherType;
 }

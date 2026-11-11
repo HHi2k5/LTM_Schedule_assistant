@@ -1,6 +1,6 @@
 # Phân quyền và tải Excel lịch đã xếp
 
-> Cập nhật 27/10/2026: đã bỏ chức năng ADMIN cấp tài khoản giảng viên. Giảng viên tự đăng ký, nhận mã do server tạo và cung cấp mã đó cho trường khi phân công. Xem [bản sửa backend](backend-fixes.md) về đăng ký, đổi mật khẩu, sheet giờ bắt buộc và kết quả xếp lịch chưa lưu.
+Giảng viên tự đăng ký, nhận mã do server tạo và cung cấp mã đó cho trường khi phân công. ADMIN không cấp tài khoản giảng viên. Xem [hướng dẫn chạy](../README.md) để cấu hình database và tạo tài khoản quản lý đầu tiên.
 
 ## Sử dụng
 
@@ -34,7 +34,7 @@ Không có tài khoản hoặc mật khẩu ADMIN được tạo tự động. C
 
 ## Nhập phân công và xuất Excel
 
-Luồng ba file trên giao diện dùng mẫu mới: kế hoạch có ngày đầu/cuối, tín chỉ và hai tổng tiết LT/TH theo đề cương; danh sách GV có trọng số LT/TH. Xem [hướng dẫn đầu vào và cấu hình TH](../frontend/README.md#xếp-lịch-và-tải-kết-quả). Luồng này không nhận mẫu kế hoạch có thứ/tiết cố định cũ. Kết quả có thêm thống kê phân công và khối lượng từng lớp/nhóm; chỉ lưu khi xếp đủ.
+Luồng ba file trên giao diện dùng mẫu mới: kế hoạch có ngày đầu/cuối, tín chỉ và hai tổng tiết LT/TH theo đề cương; danh sách GV có trọng số LT/TH. Xem [hướng dẫn đầu vào](../frontend/README.md#xếp-lịch-toàn-khoa-bằng-ba-file). Luồng này không nhận mẫu kế hoạch có thứ/tiết cố định cũ. Nếu một lớp thiếu GV hoặc không xếp đủ, hệ thống tiếp tục các lớp khác; các lớp/nhóm hoàn tất được lưu với trạng thái `PARTIAL_SUCCESS` khi còn lớp chưa xếp. Nếu tất cả đều thất bại thì giữ lịch cũ và trả `NOT_SAVED`.
 
 API một file phân công cũ vẫn hỗ trợ năm cột theo thứ tự:
 
@@ -51,7 +51,7 @@ Sau khi xếp thành công, chọn **Tải Excel lịch đã xếp** ở vùng k
 - Kết quả luồng ba file mới có thêm `PhanCongGiangVien` và `KhoiLuongLopNhom`; tổng tiết của mỗi nhóm TH được kiểm tra riêng. Ngày trong lịch mới có đủ năm bốn chữ số.
 - Mỗi giai đoạn đảo tiết là bản ghi riêng; nếu có tuần nghỉ ở giữa thì tách khoảng ngày để không xuất thêm buổi học.
 
-Excel chỉ gồm lớp đã xếp được. Cảnh báo thiếu tín chỉ hoặc lớp chưa xếp hiển thị ở kết quả. Nút tải dùng mốc tuần và bảng tiết từ lần xếp đó, không lấy các giá trị vừa sửa trên form.
+Sheet lịch chỉ gồm lớp đã xếp được. Lớp chưa xếp và lý do hiển thị trên giao diện, đồng thời có thể xuất thành sheet `LopChuaXep`/`CanhBao`, kể cả khi không có lớp nào được lưu. Nút tải dùng mốc tuần và bảng tiết từ lần xếp đó, không lấy các giá trị vừa sửa trên form.
 
 Kết quả tải nằm trong phiên trang hiện tại; reload hoặc đăng xuất sẽ xóa kết quả đang hiển thị. Chưa có lịch sử tác vụ và chức năng nhập lại hàng loạt file nhiều giảng viên.
 

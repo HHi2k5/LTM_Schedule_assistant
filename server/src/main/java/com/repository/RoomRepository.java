@@ -12,6 +12,7 @@ import java.util.Optional;
 public interface RoomRepository extends JpaRepository<Room, Long> {
     List<Room> findBySchoolCodeOrderByCapacityAsc(String schoolCode);
     List<Room> findAllByOrderByCapacityAsc();
+    List<Room> findBySchoolCodeAndRoomTypeIgnoreCase(String schoolCode, String roomType);
     Optional<Room> findByRoomCodeIgnoreCase(String roomCode);
     Optional<Room> findBySchoolCodeAndRoomCodeIgnoreCase(String schoolCode, String roomCode);
 }

@@ -11,14 +11,20 @@ const plan = { courseCode: 'NET', courseName: 'Mạng máy tính', cohort: '2024
 const teacher = { courseCode: 'NET', courseName: plan.courseName, cohort: '2024', teacherId: 'A', teacherName: 'Nguyễn Văn A', theoryWeight: 2, practiceWeight: 8 };
 const rooms = [{ roomCode: 'LT', roomType: 'THEORY', capacity: 60 }, { roomCode: 'LAB', roomType: 'PRACTICE', capacity: 30 }];
 
-test('new XLSX plan keeps full dates, credits and syllabus workload without assigned weekdays or session lengths', async () => {
-  const book = new ExcelJS.Workbook(); await book.xlsx.load(await planWorkbook([plan]).xlsx.writeBuffer());
+test('XLSX plan separates LT and TH rows with their total periods, full dates and credits', async () => {
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await planWorkbook([
+    { ...plan, classType: 'LT', totalPeriods: 30 },
+    { ...plan, classType: 'TH', totalPeriods: 45 }
+  ]).xlsx.writeBuffer());
   const sheet = book.worksheets[0];
-  assert.deepEqual(planHeaders, ['STT', 'Mã môn', 'Tên học phần', 'Sĩ số', 'Khóa', 'Số lớp mở',
-    'Tuần bắt đầu — từ ngày', 'Tuần kết thúc — đến ngày', 'Số tín chỉ', 'Tổng tiết LT', 'Tổng tiết TH']);
+  assert.deepEqual(planHeaders, ['STT', 'Mã môn', 'Tên học phần', 'Loại lớp (LT / TH)', 'Sĩ số', 'Khóa', 'Số lớp mở',
+    'Tuần bắt đầu — từ ngày', 'Tuần kết thúc — đến ngày', 'Số tín chỉ', 'Số tiết']);
   assert.deepEqual(sheet.getRow(1).values.slice(1), planHeaders);
   assert.equal(sheet.columnCount, 11);
-  assert.deepEqual(sheet.getRow(2).values.slice(1, 12), [1, 'NET', plan.courseName, 50, '2024', 1, '28/12/2026', '28/03/2027', 3, 30, 45]);
+  assert.equal(sheet.rowCount, 3);
+  assert.deepEqual(sheet.getRow(2).values.slice(1), [1, 'NET', plan.courseName, 'LT', 50, '2024', 1, '28/12/2026', '28/03/2027', 3, 30]);
+  assert.deepEqual(sheet.getRow(3).values.slice(1), [2, 'NET', plan.courseName, 'TH', 50, '2024', 1, '28/12/2026', '28/03/2027', 3, 45]);
   assert.equal(planHeaders.includes('Thứ 2'), false); assert.equal(planHeaders.includes('Tiết BĐ'), false);
   const teachers = teacherWorkbook([teacher]).worksheets[0];
   assert.deepEqual(teachers.getRow(1).values.slice(1), teacherHeaders);

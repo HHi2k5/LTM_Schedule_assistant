@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { addDays, clock, isMonday, minutes } from './schedule.js';
+import { unscheduledClasses } from './workflow.js';
 
 export const scheduleHeaders = ['Mã MH', 'Tên môn học', 'Nhóm tổ', 'Số tín chỉ', 'Thứ', 'Tiết bắt đầu', 'Số tiết', 'Phòng', 'Thời gian học:', 'Mã GV', 'Tên GV'];
 const exportDate = (value, fullYear) => `${value.slice(8)}/${value.slice(5, 7)}/${fullYear ? value.slice(0, 4) : value.slice(2, 4)}`;
@@ -8,7 +9,9 @@ const integer = (value, min, max) => Number.isInteger(value) && value >= min && 
 
 export function scheduledRows(result) {
   if (!isMonday(result?.semesterStartDate)) throw new Error('Kết quả thiếu mốc Thứ Hai của tuần 1 hợp lệ.');
-  if (!result.scheduledClasses?.length) throw new Error('Chưa có lớp đã xếp để xuất Excel.');
+  if (!Array.isArray(result.scheduledClasses) || (!result.scheduledClasses.length && !unscheduledClasses(result).length)) {
+    throw new Error('Chưa có kết quả xếp lịch để xuất Excel.');
+  }
   if (!Array.isArray(result.periods) || !result.periods.length) throw new Error('Kết quả thiếu bảng giờ tiết.');
   const periods = new Map();
   for (const period of result.periods) {
@@ -80,6 +83,23 @@ export function scheduledWorkbook(result) {
       w.teacherId || '', w.requiredPeriods, w.scheduledPeriods, w.missingPeriods]));
     workloads.columns.forEach(column => { column.width = 24; });
     sheets.push(workloads);
+  }
+  const unassigned = unscheduledClasses(result);
+  if (unassigned.length) {
+    const missing = workbook.addWorksheet('LopChuaXep');
+    missing.addRow(['ID lớp/nhóm', 'Mã môn', 'Tên học phần', 'Khóa', 'Lớp/nhóm', 'Loại LT/TH', 'Tổng tiết yêu cầu', 'Tiết còn thiếu', 'Lý do']);
+    unassigned.forEach(row => missing.addRow([row.classId, row.courseCode, row.courseName || '', row.cohort,
+      row.classGroup, row.sessionType === 'PRACTICE' ? 'TH' : 'LT', row.requiredPeriods, row.missingPeriods,
+      row.reason || 'Chưa xếp đủ lịch cho lớp/nhóm.']));
+    missing.columns.forEach((column, i) => { column.width = i === 8 ? 65 : 24; });
+    sheets.push(missing);
+  }
+  if (result.unscheduledWarnings?.length) {
+    const warnings = workbook.addWorksheet('CanhBao');
+    warnings.addRow(['Thông báo xếp lịch']);
+    result.unscheduledWarnings.forEach(warning => warnings.addRow([warning]));
+    warnings.getColumn(1).width = 100;
+    sheets.push(warnings);
   }
   for (const sheet of sheets) {
     sheet.getRow(1).font = { bold: true };

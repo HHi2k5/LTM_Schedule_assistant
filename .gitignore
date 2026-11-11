@@ -2,6 +2,11 @@ node_modules/
 dist/
 .env
 .env.local
+.env.*
+!.env.example
+!**/.env.example
+*.local.yml
+*.local.yaml
 *.log
 frontend/test-results/
 frontend/playwright-report/

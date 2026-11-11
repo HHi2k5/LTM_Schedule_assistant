@@ -29,6 +29,29 @@ public class ScheduleService {
     private final PasswordEncoder passwordEncoder;
     private final com.security.ScheduleAccess scheduleAccess;
     private final ScheduleWriteLock writeLock;
+    private final ScheduleChangePublisher scheduleChanges;
+    private final com.repository.SubjectRepository subjectRepository;
+
+    /** Màu cố định của các lớp đã có phòng nhưng chưa phân công giảng viên. */
+    static final String UNASSIGNED_COLOR = "#94a3b8";
+
+    /** Giảng viên hệ thống giữ các lớp chưa phân công; không có tài khoản đăng nhập. */
+    @Transactional
+    public Teacher ensureUnassignedTeacher(LocalDate semesterStart) {
+        return teacherRepository.findById(Teacher.UNASSIGNED_ID).orElseGet(() -> teacherRepository.save(Teacher.builder()
+                .teacherId(Teacher.UNASSIGNED_ID).fullName(Teacher.UNASSIGNED_NAME).role(Teacher.ROLE_SYSTEM)
+                .semesterStartDate(semesterStart != null ? semesterStart : LocalDate.of(2026, 8, 10)).build()));
+    }
+
+    /** Admin và chính giảng viên xem được lịch; trưởng bộ môn xem được lịch giảng viên trong bộ môn mình. */
+    private void requireReadAccess(String teacherId) {
+        Long headDepartment = scheduleAccess.headDepartmentId();
+        if (headDepartment != null && !scheduleAccess.isSelf(teacherId)) {
+            Teacher target = teacherRepository.findById(teacherId).orElse(null);
+            if (target != null && headDepartment.equals(target.getDepartmentId())) return;
+        }
+        scheduleAccess.requireTeacherAccess(teacherId);
+    }
 
     // Bảng 30 màu sắc tương phản rõ rệt để mỗi giảng viên (cơ hữu và thỉnh giảng) có 1 màu riêng trên lịch toàn khoa
     private static final String[] TEACHER_PALETTE = {
@@ -73,8 +96,11 @@ public class ScheduleService {
                         .build());
 
         school.setSchoolName(request.getSchool().getSchoolName());
-        String assignedColor = pickTeacherColor(teacher.getTeacherId(), -1);
-        school.setColorCode(assignedColor);
+        // Giảng viên tự nhập lịch: giữ màu đã chọn. Lịch do khoa xếp/phân: dùng màu theo giảng viên như trước.
+        boolean personalUpload = request.getCourses() == null || request.getCourses().stream()
+                .noneMatch(dto -> dto.getSourceType() != null && DEPARTMENT_SOURCES.contains(dto.getSourceType()));
+        String teacherColor = pickTeacherColor(teacher.getTeacherId(), -1);
+        school.setColorCode(personalUpload ? validColor(request.getSchool().getColorCode(), teacherColor) : teacherColor);
 
         if (school.getPeriods() == null) {
             school.setPeriods(new HashSet<>());
@@ -122,6 +148,7 @@ public class ScheduleService {
         }
 
         schoolRepository.save(school);
+        scheduleChanges.changed(teacher.getTeacherId());
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -129,6 +156,7 @@ public class ScheduleService {
                                        Map<String, String> names) {
         writeLock.acquire();
         String schoolCode = request.getTargetSchool().getSchoolId();
+        if (generated.containsKey(Teacher.UNASSIGNED_ID)) ensureUnassignedTeacher(request.getSemesterStartDate());
         var existing = teacherRepository.findAllWithFullSchedule();
         var retained = new LinkedHashMap<String, List<TeachingCourseDTO>>();
         for (var teacher : existing) for (var school : teacher.getSchools()) {
@@ -167,8 +195,95 @@ public class ScheduleService {
                         "Không tìm thấy lịch của đơn vị " + schoolCode + " cho giảng viên " + teacherId));
 
         Teacher teacher = school.getTeacher();
-        teacher.getSchools().remove(school);
-        schoolRepository.delete(school);
+        // Giảng viên tự xóa: chỉ xóa môn cá nhân, luôn giữ lại lịch do khoa phân
+        if (!scheduleAccess.isAdmin() && school.getCourses() != null
+                && school.getCourses().stream().anyMatch(ScheduleService::isDepartmentCourse)) {
+            school.getCourses().removeIf(course -> !isDepartmentCourse(course));
+            schoolRepository.save(school);
+        } else {
+            teacher.getSchools().remove(school);
+            schoolRepository.delete(school);
+        }
+        scheduleChanges.changed(teacher.getTeacherId());
+    }
+
+    private static final Set<String> DEPARTMENT_SOURCES = Set.of("WEEKLY_AUTO", "VISITING_AUTO");
+
+    static boolean isDepartmentCourse(TeachingCourse course) {
+        return course.getSourceType() != null && DEPARTMENT_SOURCES.contains(course.getSourceType());
+    }
+
+    private static boolean hasDepartmentCourses(School school) {
+        return school.getCourses() != null && school.getCourses().stream().anyMatch(ScheduleService::isDepartmentCourse);
+    }
+
+    private static String validColor(String color, String fallback) {
+        return color != null && color.matches("^#[0-9a-fA-F]{6}$") ? color : fallback;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonalCourseDTO> listTeacherCourses(String teacherId) {
+        scheduleAccess.requireTeacherAccess(teacherId);
+        Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId).orElse(null);
+        if (teacher == null || teacher.getSchools() == null) return List.of();
+        List<PersonalCourseDTO> result = new ArrayList<>();
+        for (School school : teacher.getSchools()) {
+            if (school.getCourses() == null) continue;
+            for (TeachingCourse course : school.getCourses()) {
+                result.add(PersonalCourseDTO.builder()
+                        .id(course.getId())
+                        .schoolId(school.getSchoolCode())
+                        .schoolName(school.getSchoolName())
+                        .courseCode(course.getCourseCode())
+                        .courseName(course.getCourseName())
+                        .room(course.getClassroom())
+                        .dayOfWeek(course.getDayOfWeek())
+                        .startPeriod(course.getStartPeriod())
+                        .numPeriods(course.getNumPeriods())
+                        .weekSchedule(course.getWeekSchedule())
+                        .sourceType(course.getSourceType())
+                        .departmentAssigned(isDepartmentCourse(course))
+                        .build());
+            }
+        }
+        result.sort(Comparator.comparing(PersonalCourseDTO::getSchoolId, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparingInt(PersonalCourseDTO::getDayOfWeek)
+                .thenComparingInt(PersonalCourseDTO::getStartPeriod)
+                .thenComparing(PersonalCourseDTO::getCourseName, Comparator.nullsLast(Comparator.naturalOrder())));
+        return result;
+    }
+
+    /** Xóa các môn cá nhân đã chọn; môn do khoa phân (WEEKLY_AUTO / VISITING_AUTO) luôn được giữ nguyên. */
+    @Transactional
+    public int deletePersonalCourses(String teacherId, List<Long> courseIds) {
+        if (teacherId == null || teacherId.isBlank()) throw new IllegalArgumentException("Thiếu mã giảng viên.");
+        scheduleAccess.requireTeacherAccess(teacherId);
+        if (courseIds == null || courseIds.isEmpty()) throw new IllegalArgumentException("Chưa chọn môn nào để xóa.");
+        writeLock.acquire();
+        Set<Long> ids = new HashSet<>(courseIds);
+        Teacher teacher = teacherRepository.findTeacherWithFullSchedule(teacherId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy dữ liệu giảng viên: " + teacherId));
+        int removed = 0;
+        if (teacher.getSchools() != null) {
+            for (School school : new ArrayList<>(teacher.getSchools())) {
+                if (school.getCourses() == null) continue;
+                int before = school.getCourses().size();
+                school.getCourses().removeIf(course -> course.getId() != null && ids.contains(course.getId())
+                        && !isDepartmentCourse(course));
+                int removedHere = before - school.getCourses().size();
+                if (removedHere == 0) continue;
+                removed += removedHere;
+                if (school.getCourses().isEmpty()) {
+                    teacher.getSchools().remove(school);
+                    schoolRepository.delete(school);
+                } else {
+                    schoolRepository.save(school);
+                }
+            }
+        }
+        if (removed == 0) throw new IllegalArgumentException("Không có môn cá nhân nào hợp lệ để xóa.");
+        scheduleChanges.changed(teacher.getTeacherId());
+        return removed;
     }
 
     @Transactional
@@ -184,6 +299,7 @@ public class ScheduleService {
             for (School s : toRemove) {
                 teacher.getSchools().remove(s);
                 schoolRepository.delete(s);
+                scheduleChanges.changed(teacher.getTeacherId());
                 removedCount++;
             }
         }
@@ -193,9 +309,8 @@ public class ScheduleService {
     @Transactional(readOnly = true)
     public WeekScheduleResponse getWeeklySchedule(String teacherId, int weekIndex) {
         boolean isAllDepartment = "ALL".equalsIgnoreCase(teacherId) || "KHOA".equalsIgnoreCase(teacherId) || teacherId == null || teacherId.isBlank();
-        if (!isAllDepartment) {
-            scheduleAccess.requireTeacherAccess(teacherId);
-        }
+        if (isAllDepartment) scheduleAccess.requireAdmin();
+        else requireReadAccess(teacherId);
         if (weekIndex < 1 || weekIndex > 100) throw new IllegalArgumentException("Tuần phải từ 1 đến 100.");
 
         List<Teacher> teachers;
@@ -228,24 +343,29 @@ public class ScheduleService {
         for (Teacher t : teachers) {
             boolean hasCourses = t.getSchools() != null && t.getSchools().stream()
                     .anyMatch(s -> s.getCourses() != null && !s.getCourses().isEmpty());
-            if (hasCourses) {
+            if (hasCourses && !t.unassignedPool()) {
                 teacherColorMap.put(t.getTeacherId(), TEACHER_PALETTE[colorCounter % TEACHER_PALETTE.length]);
                 colorCounter++;
             }
         }
 
         for (Teacher teacher : teachers) {
-            String teacherDistinctColor = teacherColorMap.getOrDefault(
+            boolean unassigned = teacher.unassignedPool();
+            String teacherDistinctColor = unassigned ? UNASSIGNED_COLOR : teacherColorMap.getOrDefault(
                     teacher.getTeacherId(),
                     pickTeacherColor(teacher.getTeacherId(), -1)
             );
             if (teacher.getSchools() == null) continue;
 
             for (School school : teacher.getSchools()) {
+                // Lịch toàn khoa: mỗi giảng viên một màu. Lịch cá nhân: trường tự nhập dùng màu giảng viên đã chọn khi nhập.
+                String lessonColor = isAllDepartment || hasDepartmentCourses(school)
+                        ? teacherDistinctColor
+                        : validColor(school.getColorCode(), teacherDistinctColor);
                 schoolConfigs.computeIfAbsent(school.getSchoolCode(), code -> SchoolConfigDTO.builder()
                         .schoolId(code)
                         .schoolName(school.getSchoolName())
-                        .colorCode(teacherDistinctColor)
+                        .colorCode(lessonColor)
                         .periods(school.getPeriods() == null ? List.of() : school.getPeriods().stream()
                                 .sorted(Comparator.comparingInt(SchoolPeriod::getPeriodNumber))
                                 .map(period -> new PeriodTimeDTO(period.getPeriodNumber(), period.getStartTime(), period.getEndTime()))
@@ -278,18 +398,19 @@ public class ScheduleService {
                             if (!uniqueLessonCheck.contains(uniqueKey)) {
                                 uniqueLessonCheck.add(uniqueKey);
 
-                                String teacherLabel = teacher.getFullName() != null && !teacher.getFullName().isBlank()
+                                String teacherLabel = unassigned ? Teacher.UNASSIGNED_NAME
+                                        : teacher.getFullName() != null && !teacher.getFullName().isBlank()
                                         ? teacher.getFullName() + " (" + teacher.getTeacherId() + ")"
                                         : teacher.getTeacherId();
 
-                                String displayCourse = isAllDepartment
-                                        ? "[" + teacher.getTeacherId() + " - " + teacher.getFullName() + "] " + course.getCourseName()
-                                        : course.getCourseName();
+                                String displayCourse = !isAllDepartment ? course.getCourseName()
+                                        : unassigned ? "[" + Teacher.UNASSIGNED_NAME + "] " + course.getCourseName()
+                                        : "[" + teacher.getTeacherId() + " - " + teacher.getFullName() + "] " + course.getCourseName();
 
                                 weeklyLessons.add(LessonSlot.builder()
                                         .schoolId(school.getSchoolCode())
                                         .schoolName(isAllDepartment ? "GV: " + teacherLabel : school.getSchoolName())
-                                        .colorCode(teacherDistinctColor)
+                                        .colorCode(lessonColor)
                                         .courseName(displayCourse)
                                         .room(course.getClassroom())
                                         .dayOfWeek(course.getDayOfWeek())
@@ -340,6 +461,32 @@ public class ScheduleService {
 
         String teacherId = req.getTeacherId().trim().toUpperCase(Locale.ROOT);
         String teacherName = req.getTeacherName().trim();
+        if (Teacher.UNASSIGNED_ID.equals(teacherId)) throw new IllegalArgumentException("Mã giảng viên này được hệ thống sử dụng.");
+
+        // Trưởng bộ môn chỉ xếp thỉnh giảng cho môn của bộ môn mình; mọi môn của một giảng viên phải cùng bộ môn.
+        Long headDepartment = scheduleAccess.headDepartmentId();
+        Map<String, Subject> catalog = new HashMap<>();
+        for (Subject subject : subjectRepository.findBySchoolCodeOrderByCourseCodeAsc(schoolCode)) {
+            catalog.put(subject.getCourseCode().toUpperCase(Locale.ROOT), subject);
+        }
+        Long departmentId = headDepartment;
+        for (var assignment : req.getAssignments()) {
+            if (assignment == null || assignment.getCourseCode() == null || assignment.getCourseCode().isBlank()) {
+                throw new IllegalArgumentException("Vui lòng chọn môn học cho từng dòng phân công thỉnh giảng.");
+            }
+            String code = assignment.getCourseCode().trim().toUpperCase(Locale.ROOT);
+            Subject subject = catalog.get(code);
+            if (subject == null) {
+                throw new IllegalArgumentException("Môn " + code + " chưa có trong danh mục môn học của bộ môn.");
+            }
+            if (departmentId == null) departmentId = subject.getDepartmentId();
+            if (!departmentId.equals(subject.getDepartmentId())) {
+                throw new IllegalArgumentException(headDepartment != null
+                        ? "Môn " + code + " không thuộc bộ môn của bạn."
+                        : "Các môn của một giảng viên thỉnh giảng phải thuộc cùng một bộ môn.");
+            }
+        }
+        final Long visitingDepartment = departmentId;
 
         LocalDate studyStart = req.getStudyStartDate() != null ? req.getStudyStartDate() : semesterStart;
         LocalDate studyEnd = req.getStudyEndDate() != null ? req.getStudyEndDate() : semesterStart.plusDays(105);
@@ -367,9 +514,22 @@ public class ScheduleService {
                     .username(teacherId)
                     .password(passwordEncoder.encode(defaultPwd))
                     .role("TEACHER")
+                    .teacherType(Teacher.TYPE_VISITING)
+                    .departmentId(visitingDepartment)
                     .semesterStartDate(semesterStart)
                     .build();
         } else {
+            if (Teacher.ROLE_ADMIN.equals(visitingTeacher.getRole())) {
+                throw new IllegalArgumentException("Mã " + teacherId + " là tài khoản quản trị, không thể xếp lịch thỉnh giảng.");
+            }
+            if (visitingTeacher.getDepartmentId() != null && !visitingTeacher.getDepartmentId().equals(visitingDepartment)) {
+                throw new IllegalArgumentException("Giảng viên " + teacherId + " đang thuộc bộ môn khác.");
+            }
+            if (visitingTeacher.getDepartmentId() == null) {
+                // Hồ sơ chưa thuộc bộ môn nào: nhận vào bộ môn với loại thỉnh giảng.
+                visitingTeacher.setDepartmentId(visitingDepartment);
+                visitingTeacher.setTeacherType(Teacher.TYPE_VISITING);
+            }
             visitingTeacher.setFullName(teacherName);
             if (visitingTeacher.getUsername() == null || visitingTeacher.getUsername().isBlank()) {
                 visitingTeacher.setUsername(teacherId);
@@ -412,7 +572,8 @@ public class ScheduleService {
 
         for (var assignment : req.getAssignments()) {
             String courseCode = assignment.getCourseCode().trim().toUpperCase(Locale.ROOT);
-            String courseName = assignment.getCourseName().trim();
+            Subject catalogSubject = catalog.get(courseCode);
+            String courseName = catalogSubject.getCourseName();
             String cohort = (assignment.getCohort() == null || assignment.getCohort().isBlank()) ? "2024" : assignment.getCohort().trim();
             String classGroup = (assignment.getClassGroup() == null || assignment.getClassGroup().isBlank()) ? "Lớp TG-01" : assignment.getClassGroup().trim();
             boolean isPractice = "PRACTICE".equalsIgnoreCase(assignment.getSessionType()) || "TH".equalsIgnoreCase(assignment.getSessionType());
@@ -435,11 +596,16 @@ public class ScheduleService {
             ts.setPracticeWeight(isPractice ? 1 : 0);
             teacherSubjectRepository.save(ts);
 
+            // Cùng quy tắc với xếp lịch khoa: môn yêu cầu loại phòng thì chỉ dùng phòng đúng loại đó.
+            String requiredRoomType = isPractice ? catalogSubject.getPracticeRoomType() : catalogSubject.getTheoryRoomType();
+            boolean typed = requiredRoomType != null && !requiredRoomType.isBlank();
             List<Room> candidateRooms = allCandidateRooms.stream()
-                    .filter(r -> r.isLab() == isPractice && r.getCapacity() >= studentCount)
+                    .filter(r -> (typed ? requiredRoomType.equalsIgnoreCase(r.getRoomType()) : r.isLab() == isPractice)
+                            && r.getCapacity() >= studentCount)
                     .toList();
             if (candidateRooms.isEmpty()) {
-                throw new IllegalArgumentException("Không có phòng " + (isPractice ? "Thực hành (LAB)" : "Lý thuyết") + " nào đủ sức chứa cho môn " + courseCode + ".");
+                throw new IllegalArgumentException("Không có phòng " + (typed ? "loại " + requiredRoomType
+                        : isPractice ? "Thực hành" : "Lý thuyết") + " nào đủ sức chứa cho môn " + courseCode + ".");
             }
 
             List<Teacher> allTeachers = teacherRepository.findAllWithFullSchedule();
@@ -539,7 +705,10 @@ public class ScheduleService {
 
                     int sumPlaced = placed.stream().mapToInt(PlacedVisit::countP).sum();
                     if (sumPlaced == requiredPeriods) {
-                        for (RelocationUndo u : undoList) schoolRepository.save(u.school());
+                        for (RelocationUndo u : undoList) {
+                            schoolRepository.save(u.school());
+                            scheduleChanges.changed(u.school().getTeacher().getTeacherId());
+                        }
                         bestPlaced = placed;
                         usedGapPass = minGap;
                         break searchPass;
@@ -621,6 +790,7 @@ public class ScheduleService {
         }
 
         schoolRepository.save(visitingSchool);
+        scheduleChanges.changed(teacherId);
 
         return AutoScheduleResponse.builder()
                 .schoolId(schoolCode)

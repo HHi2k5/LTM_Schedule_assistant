@@ -58,20 +58,29 @@ public class SecurityConfig {
                     mapper.writeValue(response.getWriter(), Map.of("status", "ERROR", "message", "Bạn không có quyền thực hiện thao tác này."));
                 }))
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auth/login", "/api/schedule/auth/register").permitAll()
                 .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/static/**", "/*.ico", "/*.json").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/api/schedule/department-schedule").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/auth/change-password").authenticated()
-                .requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
+                // Danh mục: admin ghi; trưởng bộ môn chỉ đọc bộ môn, môn học và giảng viên để phân công.
+                .requestMatchers(HttpMethod.GET, "/api/schedule/departments", "/api/schedule/subjects",
+                        "/api/schedule/teacher-subjects").hasAnyRole("ADMIN", "DEPT_HEAD")
+                .requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/room-types", "/api/schedule/room-types/**",
+                        "/api/schedule/departments", "/api/schedule/departments/**", "/api/schedule/subjects", "/api/schedule/subjects/**",
+                        "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
+                // Phân công giảng viên vào lớp và xếp lịch thỉnh giảng: trưởng bộ môn (trong bộ môn mình) hoặc admin.
+                .requestMatchers("/api/schedule/assignments", "/api/schedule/assignments/**").hasAnyRole("ADMIN", "DEPT_HEAD")
+                .requestMatchers(HttpMethod.POST, "/api/schedule/visiting-schedule").hasAnyRole("ADMIN", "DEPT_HEAD")
                 .requestMatchers(HttpMethod.POST, "/api/schedule/upload-excel-teacher").hasRole("TEACHER")
-                .requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasRole("TEACHER")
+                .requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasAnyRole("TEACHER", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/schedule/personal-courses").hasRole("TEACHER")
+                .requestMatchers(HttpMethod.POST, "/api/schedule/personal-courses/delete").hasRole("TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/schedule/week/*", "/api/schedule/auth/me").authenticated()
-                .requestMatchers(HttpMethod.POST, "/api/schedule/auto-generate-excel", "/api/schedule/auto-generate-3files", "/api/schedule/visiting-schedule").hasRole("ADMIN")
-.requestMatchers(HttpMethod.DELETE, "/api/schedule/department-schedule").hasRole("ADMIN")
-.requestMatchers("/api/schedule/rooms", "/api/schedule/rooms/**", "/api/schedule/teacher-subjects", "/api/schedule/teacher-subjects/**").hasRole("ADMIN")
-.requestMatchers(HttpMethod.DELETE, "/api/schedule/school").hasAnyRole("TEACHER", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/schedule/events").hasAnyRole("TEACHER", "ADMIN")
                 .requestMatchers("/error").permitAll()
                 .anyRequest().denyAll()
             );

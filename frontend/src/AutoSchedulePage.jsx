@@ -3,7 +3,7 @@ import { Upload, Download, Calendar, CheckCircle2, AlertTriangle, Plus, Trash2, 
 import { api, addDays } from './schedule';
 import { planWorkbook } from './autoScheduleWorkbook';
 import { scheduledWorkbook } from './scheduleExport';
-import { firstActiveWeek, validateAutoResult, validateFile, validateSchool } from './workflow';
+import { firstActiveWeek, isSavedAutoResult, unscheduledClasses, validateAutoResult, validateFile, validateSchool } from './workflow';
 import FormError from './FormError';
 
 function partitionPracticePeriods(total) {
@@ -192,7 +192,6 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     try {
       validateSchool(schoolId, schoolName, startDate);
       validateFile(planFile, 'Kế hoạch mở lớp');
-      if (!savedTeachers.length) throw new Error('Khoa chưa có giảng viên nào. Vui lòng thêm giảng viên ở trang Quản lý GV & Phòng.');
       if (!savedRooms.length) throw new Error('Khoa chưa có phòng học nào. Vui lòng thêm phòng học ở trang Quản lý GV & Phòng.');
     } catch (err) {
       setError(err.message);
@@ -227,7 +226,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
   }
 
   async function exportResultToExcel() {
-    if (busy || exporting || !result?.scheduledClasses?.length) return;
+    if (busy || exporting || !result) return;
     setExporting(true);
     setExportError('');
     try {
@@ -247,7 +246,9 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     }
   }
 
-  const saved = result?.saved === true && result?.status === 'SUCCESS';
+  const saved = isSavedAutoResult(result);
+  const unassigned = unscheduledClasses(result);
+  const canExport = Boolean(result?.scheduledClasses?.length || unassigned.length);
   const filteredSlots = (result?.scheduledClasses || []).filter(slot => {
     if (sessionFilter !== 'ALL' && slot.sessionType !== sessionFilter) return false;
     if (!filterText.trim()) return true;
@@ -320,7 +321,7 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
 
           <h4>Danh sách các môn học / lớp học phân công cho giảng viên này</h4>
           {visitingForm.assignments.map((asg, idx) => (
-            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 75px 1.1fr 1.1fr 75px 85px 40px', gap: '0.4rem', alignItems: 'end', marginBottom: '0.5rem', background: '#fff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <div key={idx} className="visiting-assignment">
               <label>Mã môn <input required placeholder="61FIT3DBS" value={asg.courseCode} onChange={e => updateVisitingAssignment(idx, 'courseCode', e.target.value)} /></label>
               <label>Tên môn <input required placeholder="Cơ sở dữ liệu" value={asg.courseName} onChange={e => updateVisitingAssignment(idx, 'courseName', e.target.value)} /></label>
               <label>Khóa <input required placeholder="2024" value={asg.cohort} onChange={e => updateVisitingAssignment(idx, 'cohort', e.target.value)} /></label>
@@ -377,9 +378,9 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
         <div className="import-preview" style={{ marginTop: '1.5rem' }}>
           <div className="panel-title">
             <div>
-              <h2>{saved ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />} {saved ? 'Đã lưu lịch vào Cơ sở dữ liệu' : 'Bản xem trước — chưa lưu'}</h2>
+              <h2>{saved ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />} {saved ? 'Đã lưu các lớp xếp được' : 'Kết quả xếp lịch — chưa lưu'}</h2>
               <p>{result.message}</p>
-              {result.unscheduledWarnings?.length > 0 && (
+              {result.unscheduledWarnings?.length > 0 && !unassigned.length && (
                 <div className="import-warning" style={{ marginTop: '0.5rem' }}>
                   <AlertTriangle size={16} />
                   <span><strong>Cảnh báo môn/lớp còn thiếu giảng viên hoặc phòng:</strong> {result.unscheduledWarnings.join(' | ')}</span>
@@ -387,9 +388,33 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
               )}
             </div>
             <div className="template-actions">
-              <button type="button" className="button primary" onClick={exportResultToExcel}><Download size={16} /> Xuất Excel</button>
+              <button type="button" className="button primary" disabled={busy || exporting || !canExport} onClick={exportResultToExcel}><Download size={16} /> {exporting ? 'Đang xuất Excel…' : 'Xuất Excel kết quả'}</button>
             </div>
           </div>
+
+          {unassigned.length > 0 && (
+            <section aria-label="Các lớp chưa xếp được" style={{ marginTop: '1rem' }}>
+              <div role="alert" className="import-warning">
+                <AlertTriangle size={18} />
+                <span>Còn <strong>{unassigned.length} lớp/nhóm chưa xếp được</strong>
+                  {unassigned.some(row => row.reasonCode === 'NO_TEACHER') && `, trong đó ${unassigned.filter(row => row.reasonCode === 'NO_TEACHER').length} lớp/nhóm thiếu giảng viên`}.
+                  {' '}Các lớp khác đã được tiếp tục xử lý. Danh sách này có trong file Excel kết quả.</span>
+              </div>
+              <div className="table-scroll">
+                <table>
+                  <thead><tr><th>Mã môn</th><th>Học phần</th><th>Khóa</th><th>Lớp/nhóm</th><th>Loại</th><th>Tiết còn thiếu</th><th>Lý do chưa xếp</th></tr></thead>
+                  <tbody>{unassigned.map((row, index) => (
+                    <tr key={row.classId || index}>
+                      <td>{row.courseCode}</td><td>{row.courseName || '—'}</td><td>{row.cohort}</td>
+                      <td>{row.classGroup}</td><td>{row.sessionType === 'PRACTICE' ? 'TH' : 'LT'}</td>
+                      <td>{row.missingPeriods}/{row.requiredPeriods}</td>
+                      <td>{row.reason || 'Chưa xếp đủ lịch cho lớp/nhóm.'}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <div className="filter-bar" style={{ marginTop: '0.75rem' }}>
             <label className="search-field">
