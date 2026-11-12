@@ -3,13 +3,13 @@ package com.dto;
 import java.time.LocalDate;
 import java.util.List;
 
-
+/** Dữ liệu trang phân công giảng viên và luồng bàn giao hai chiều giữa Admin và Trưởng bộ môn. */
 public final class AssignmentView {
     private AssignmentView() {}
 
     public record Session(int dayOfWeek, int startPeriod, int numPeriods, String room, String weekSchedule) {}
 
-    
+    /** Giảng viên dạy được môn của lớp; blockedReason khác null khi không thể nhận lớp (trùng giờ / bận...). */
     public record Candidate(String teacherId, String teacherName, String teacherType, String kind, int weight,
                             String blockedReason) {}
 
@@ -19,7 +19,7 @@ public final class AssignmentView {
 
     public record TeacherLoad(String teacherId, String teacherName, String teacherType, int classes, int periods) {}
 
-
+    /** Trạng thái bàn giao lịch theo từng bộ môn: EMPTY, DRAFT, SENT_TO_DEPT, SUBMITTED_TO_ADMIN */
     public record DepartmentStatus(Long departmentId, String departmentCode, String departmentName,
                                    String headTeacherId, String headTeacherName,
                                    int totalClasses, int assignedClasses, String workflowStatus) {}
@@ -28,7 +28,7 @@ public final class AssignmentView {
                            String workflowStatus, List<DepartmentStatus> departmentStatuses,
                            List<ClassRow> classes, List<TeacherLoad> teachers) {}
 
-   
+    /** teacherId rỗng hoặc null = bỏ phân công (đưa lớp về trạng thái chưa có giảng viên). */
     public record AssignRequest(String schoolId, String classId, String teacherId) {}
 
     public record AutoRequest(String schoolId, Long departmentId) {}
@@ -39,6 +39,7 @@ public final class AssignmentView {
 
     public record AutoResult(String status, String message, int assigned, List<Unassigned> remaining) {}
 
+    // ==================== LỊCH BẬN & PHÂN LỚP ĐÃ MỞ CHO GIẢNG VIÊN THỈNH GIẢNG ====================
 
     public record BusyEntry(Long id, Integer dayOfWeek, LocalDate specificDate, String note) {}
 

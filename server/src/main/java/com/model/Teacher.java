@@ -15,7 +15,7 @@ import java.util.Set;
 @Builder
 public class Teacher {
 
-  
+    /** Giảng viên hệ thống giữ các lớp khoa đã xếp phòng nhưng chưa phân công giảng viên. */
     public static final String UNASSIGNED_ID = "__UNASSIGNED__";
     public static final String UNASSIGNED_NAME = "Chưa phân công";
 
@@ -45,15 +45,16 @@ public class Teacher {
 
     @Column(name = "role", length = 20)
     @Builder.Default
-    private String role = "TEACHER"; 
+    private String role = "TEACHER"; // TEACHER, DEPT_HEAD (trưởng bộ môn), ADMIN hoặc SYSTEM
 
     @Column(name = "semester_start_date", nullable = false)
     private LocalDate semesterStartDate;
 
-
+    /** Bộ môn của giảng viên; null khi chưa được xếp vào bộ môn nào. */
     @Column(name = "department_id")
     private Long departmentId;
 
+    /** TRUONG_BO_MON, GIANG_VIEN, TRO_GIANG hoặc THINH_GIANG. */
     @Column(name = "teacher_type", columnDefinition = "VARCHAR(20) DEFAULT 'GIANG_VIEN'")
     @Builder.Default
     private String teacherType = TYPE_LECTURER;

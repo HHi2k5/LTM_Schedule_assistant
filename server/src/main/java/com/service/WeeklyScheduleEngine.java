@@ -24,7 +24,10 @@ final class WeeklyScheduleEngine {
     private final Map<ScheduleKey, GeneratedClassSlot> mergedSlots = new LinkedHashMap<>();
     private final Map<ScheduleKey, TeachingCourseDTO> mergedCourses = new LinkedHashMap<>();
     private static final int SEARCH_BUDGET = 2_000_000;
-   
+    /**
+     * Admin chỉ xếp lớp vào phòng: mọi lớp tạm thuộc "giảng viên" hệ thống này cho tới khi
+     * trưởng bộ môn phân công, nên các ràng buộc theo giảng viên không áp dụng ở bước xếp phòng.
+     */
     private static final TeacherCandidateDTO UNASSIGNED = TeacherCandidateDTO.builder()
             .teacherId(Teacher.UNASSIGNED_ID).teacherName(Teacher.UNASSIGNED_NAME).theoryWeight(1).practiceWeight(1).build();
 
@@ -660,12 +663,13 @@ final class WeeklyScheduleEngine {
         return practice ? teacher.getPracticeWeight() : teacher.getTheoryWeight();
     }
 
-   
+    /** Mã loại phòng mà môn bắt buộc cho loại lớp này; null nếu môn không yêu cầu loại phòng cụ thể. */
     static String requiredRoomType(CourseDemandDTO course, boolean practice) {
         String required = practice ? course.getPracticeRoomType() : course.getTheoryRoomType();
         return required == null || required.isBlank() ? null : required.trim();
     }
- /** Môn có yêu cầu loại phòng thì phòng phải đúng loại đó; không thì chỉ cần đúng nhóm phòng LT/TH. */
+
+    /** Môn có yêu cầu loại phòng thì phòng phải đúng loại đó; không thì chỉ cần đúng nhóm phòng LT/TH. */
     static boolean roomFits(CourseDemandDTO course, boolean practice, Room room) {
         String required = requiredRoomType(course, practice);
         if (required != null) return required.equalsIgnoreCase(room.getRoomType());

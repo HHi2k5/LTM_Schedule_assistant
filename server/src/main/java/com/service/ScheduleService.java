@@ -33,10 +33,10 @@ public class ScheduleService {
     private final com.repository.SubjectRepository subjectRepository;
     private final CatalogService catalogService;
 
-  
+    /** Màu cố định của các lớp đã có phòng nhưng chưa phân công giảng viên. */
     static final String UNASSIGNED_COLOR = "#94a3b8";
 
-
+    /** Giảng viên hệ thống giữ các lớp chưa phân công; không có tài khoản đăng nhập. */
     @Transactional
     public Teacher ensureUnassignedTeacher(LocalDate semesterStart) {
         return teacherRepository.findById(Teacher.UNASSIGNED_ID).orElseGet(() -> teacherRepository.save(Teacher.builder()
@@ -44,7 +44,7 @@ public class ScheduleService {
                 .semesterStartDate(semesterStart != null ? semesterStart : LocalDate.of(2026, 8, 10)).build()));
     }
 
-  
+    /** Admin và chính giảng viên xem được lịch; trưởng bộ môn xem được lịch giảng viên trong bộ môn mình. */
     private void requireReadAccess(String teacherId) {
         Long headDepartment = scheduleAccess.headDepartmentId();
         if (headDepartment != null && !scheduleAccess.isSelf(teacherId)) {
@@ -256,7 +256,7 @@ public class ScheduleService {
         return result;
     }
 
-    
+    /** Xóa các môn cá nhân đã chọn; môn do khoa phân (WEEKLY_AUTO / VISITING_AUTO) luôn được giữ nguyên. */
     @Transactional
     public int deletePersonalCourses(String teacherId, List<Long> courseIds) {
         if (teacherId == null || teacherId.isBlank()) throw new IllegalArgumentException("Thiếu mã giảng viên.");
@@ -453,7 +453,7 @@ public class ScheduleService {
                 .build();
     }
 
-   
+    // ==================== XẾP LỊCH BỔ SUNG CHO GIẢNG VIÊN THỈNH GIẢNG (HỖ TRỢ ĐA MÔN / ĐA LỚP) ====================
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse scheduleVisitingTeacher(VisitingTeacherRequest req) {
         writeLock.acquire();

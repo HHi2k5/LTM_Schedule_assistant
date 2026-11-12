@@ -20,7 +20,7 @@ import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.*;
 
-
+/** Hồ sơ giảng viên của khoa: bộ môn, loại giảng viên, môn phụ trách và môn có thể dạy thay. */
 @Service
 @RequiredArgsConstructor
 public class TeacherDirectoryService {
@@ -31,6 +31,7 @@ public class TeacherDirectoryService {
     private final PasswordEncoder passwordEncoder;
     private final ScheduleAccess access;
 
+    /** Mật khẩu mặc định: tên không dấu viết liền (chữ thường) + mã GV. VD: "Đào Ngọc Phong" + "GV01" -> "daongocphongGV01". */
     public static String defaultPassword(String fullName, String teacherId) {
         String noAccent = Normalizer.normalize(fullName == null ? "" : fullName, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "").replace('đ', 'd').replace('Đ', 'D')
@@ -48,7 +49,7 @@ public class TeacherDirectoryService {
                 .practiceWeight(row.getPracticeWeight()).kind(kind(row.getAssignmentKind())).build();
     }
 
-    
+    /** Admin xem mọi giảng viên (lọc theo bộ môn nếu cần); trưởng bộ môn chỉ xem bộ môn mình và không thấy mật khẩu mặc định. */
     @Transactional(readOnly = true)
     public List<TeacherAccountDTO> list(String schoolId, Long departmentId) {
         String schoolCode = CatalogService.school(schoolId);
@@ -195,7 +196,7 @@ public class TeacherDirectoryService {
                 if (teacher.getDepartmentId() == null || !ownDept.equals(teacher.getDepartmentId())) {
                     throw new AccessDeniedException("Giảng viên " + teacherId + " không thuộc bộ môn của bạn.");
                 }
-            
+                // Trưởng bộ môn chỉ cập nhật môn dạy, giữ nguyên định danh, vai trò và loại giảng viên hiện có.
                 teacherName = teacher.getFullName();
             }
             effectiveType = teacher.effectiveType();
@@ -214,7 +215,7 @@ public class TeacherDirectoryService {
             effectiveType = requestedType;
             teacher.setDepartmentId(department.getId());
             teacher.setTeacherType(effectiveType);
-           
+            // Vai trò đăng nhập đi theo loại giảng viên; tài khoản quản trị không bị đổi vai trò.
             if (!Teacher.ROLE_ADMIN.equals(teacher.getRole())) {
                 teacher.setRole(Teacher.TYPE_HEAD.equals(effectiveType) ? Teacher.ROLE_DEPT_HEAD : Teacher.ROLE_TEACHER);
             }

@@ -19,7 +19,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-
+/**
+ * Trưởng bộ môn phân công giảng viên vào các lớp khoa đã xếp phòng.
+ * Lớp chưa phân công nằm dưới giảng viên hệ thống {@link Teacher#UNASSIGNED_ID}; phân công là chuyển
+ * các buổi của lớp sang lịch của giảng viên, bỏ phân công là chuyển ngược lại.
+ */
 @Service
 @RequiredArgsConstructor
 public class TeacherAssignmentService {
@@ -41,7 +45,7 @@ public class TeacherAssignmentService {
     private final ScheduleWriteLock writeLock;
     private final ScheduleChangePublisher changes;
 
-  
+    /** Một buổi dạy thật trên lịch (ngày + giờ), dùng để phát hiện trùng giờ giữa các trường/đơn vị. */
     private record Occurrence(LocalDate date, LocalTime start, LocalTime end, String classId, String label) {
         boolean overlaps(Occurrence other) {
             return start.isBefore(other.end) && other.start.isBefore(end);
@@ -77,6 +81,7 @@ public class TeacherAssignmentService {
         return dow == 8 ? "Chủ Nhật" : "Thứ " + dow;
     }
 
+    /** Ảnh chụp lịch toàn khoa trong một giao dịch; được cập nhật theo từng lần chuyển lớp. */
     private final class Snapshot {
         final String schoolCode;
         final Map<String, Teacher> teacherById = new LinkedHashMap<>();
@@ -148,7 +153,7 @@ public class TeacherAssignmentService {
             return subject == null ? null : subject.getDepartmentId();
         }
 
-
+        /** Giảng viên được gắn môn của lớp và thuộc bộ môn của môn đó. */
         List<Qualified> qualified(ScheduledClass scheduled) {
             Long department = departmentOf(scheduled);
             var result = new LinkedHashMap<String, Qualified>();
@@ -183,6 +188,7 @@ public class TeacherAssignmentService {
             return null;
         }
 
+        /** null nếu giảng viên nhận được lớp; ngược lại là lý do (trùng giờ, bận ngày/thứ, lệch mốc tuần). */
         String blockedReason(ScheduledClass scheduled, Teacher teacher) {
             var days = busy.getOrDefault(teacher.getTeacherId(), Map.of());
             for (Occurrence time : scheduled.occurrences) {
@@ -231,6 +237,7 @@ public class TeacherAssignmentService {
         return result;
     }
 
+    /** Số tuần phải lùi chuỗi tuần khi chuyển lớp từ lịch của `from` sang lịch của `to` (hai mốc tuần 1 có thể khác nhau). */
     private static long weekShift(Teacher from, Teacher to) {
         boolean targetEmpty = to.getSchools() == null || to.getSchools().isEmpty();
         if (targetEmpty || to.getSemesterStartDate() == null || from.getSemesterStartDate() == null) return 0;
@@ -311,7 +318,7 @@ public class TeacherAssignmentService {
         return total;
     }
 
-  
+    // ==================== XEM ====================
 
     @Transactional(readOnly = true)
     public Overview overview(String schoolId, Long departmentId) {
@@ -413,7 +420,7 @@ public class TeacherAssignmentService {
                 scopeWorkflowStatus, departmentStatusList, classRows, teacherLoads);
     }
 
-  
+    // ==================== BÀN GIAO LỊCH HAI CHIỀU (ADMIN <-> TRƯỞNG BỘ MÔN) ====================
 
     @Transactional(rollbackFor = Exception.class)
     public String dispatchToDepartments(String schoolId, Long departmentId) {
@@ -521,7 +528,7 @@ public class TeacherAssignmentService {
         return "Đã gửi kết quả phân công (" + submittedClasses + " lớp) lên Admin.";
     }
 
-  
+    // ==================== HỒ SƠ LỊCH BẬN GIẢNG VIÊN THỈNH GIẢNG ====================
 
     @Transactional(readOnly = true)
     public VisitingProfile visitingProfile(String schoolId, String teacherId) {
@@ -649,7 +656,7 @@ public class TeacherAssignmentService {
         unavailabilityRepo.delete(entry);
     }
 
-   
+    // ==================== PHÂN CÔNG / BỎ PHÂN CÔNG LỚP ĐÃ MỞ ====================
 
     @Transactional(rollbackFor = Exception.class)
     public String assign(AssignRequest request) {
@@ -772,6 +779,7 @@ public class TeacherAssignmentService {
         return new AutoResult(remaining.isEmpty() ? "SUCCESS" : "PARTIAL_SUCCESS", msg, assigned, remaining);
     }
 
+    /** Chuyển toàn bộ buổi của lớp sang lịch của giảng viên đích và cập nhật ảnh chụp. */
     private void move(Snapshot snapshot, ScheduledClass scheduled, Teacher target) {
         Teacher from = scheduled.owner;
         School source = scheduled.school;
@@ -844,6 +852,12 @@ public class TeacherAssignmentService {
         changes.changed(target.getTeacherId());
     }
 
+    // ==================== TỰ PHÂN CÔNG ====================
+
+    /**
+     * Chia các lớp chưa có giảng viên của bộ môn theo trọng số LT/TH: ưu tiên giảng viên cơ hữu,
+     * chỉ dùng giảng viên thỉnh giảng khi không còn giảng viên cơ hữu nào rảnh, và không bao giờ xếp trùng giờ/ngày bận.
+     */
     @Transactional(rollbackFor = Exception.class)
     public AutoResult autoAssign(AutoRequest request) {
         if (request == null) throw new IllegalArgumentException("Thiếu thông tin tự phân công.");

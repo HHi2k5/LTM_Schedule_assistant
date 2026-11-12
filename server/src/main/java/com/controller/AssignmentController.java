@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+/** Trưởng bộ môn phân công giảng viên và bàn giao hai chiều với Admin. */
 @RestController
 @RequestMapping("/api/schedule/assignments")
 @RequiredArgsConstructor
