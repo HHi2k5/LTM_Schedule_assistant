@@ -52,7 +52,7 @@ public class TeacherSubject {
     public static final String KIND_PRIMARY = "PRIMARY";
     public static final String KIND_SUBSTITUTE = "SUBSTITUTE";
 
-    /** PRIMARY: môn phụ trách chính; SUBSTITUTE: môn có thể dạy thay. */
+
     @Column(name = "assignment_kind", columnDefinition = "VARCHAR(20) DEFAULT 'PRIMARY'")
     @Builder.Default
     private String assignmentKind = KIND_PRIMARY;

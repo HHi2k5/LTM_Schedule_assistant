@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** Only invalidation notices are streamed; calendar data still uses the authorised week API. */
+
 @Component
 public class ScheduleEventBroker {
     private final Set<Connection> connections = ConcurrentHashMap.newKeySet();

@@ -3,7 +3,7 @@ package com.service;
 import java.time.*;
 import java.util.*;
 
-/** Resource/day indexes and a rollback journal for tentative placements. */
+
 final class WeeklyReservations {
 
     record Reservation(
@@ -49,10 +49,7 @@ final class WeeklyReservations {
 
     int size() { return journal.size(); }
 
-    /**
-     * Số buổi của các lớp/nhóm khác thuộc cùng môn đang diễn ra trùng giờ. Khi lớp chưa có giảng viên,
-     * rải các lớp cùng môn sang khung giờ khác nhau giúp bộ môn phân công được với ít giảng viên hơn.
-     */
+   
     int sameCourseOverlaps(String school, String courseCode, String group, LocalDate date, LocalTime start, LocalTime end) {
         String code = normalizeCourse(courseCode);
         if (code.isEmpty()) return 0;

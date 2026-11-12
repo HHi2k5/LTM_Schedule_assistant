@@ -13,7 +13,7 @@ final class WeeklyPlanExcelReader {
     private final DataFormatter formatter = new DataFormatter(Locale.ROOT);
     private record Table(Sheet sheet, int firstDataRow, Map<String, Integer> columns) {}
 
-    /** Đọc kế hoạch mở lớp. Giảng viên không còn được gán ở bước này; trưởng bộ môn phân công sau khi lớp đã có phòng. */
+  
     List<CourseDemandDTO> read(MultipartFile plan) throws Exception {
         var courses = new ArrayList<CourseDemandDTO>();
         validateFile(plan, "Kế hoạch mở lớp");
@@ -59,7 +59,6 @@ final class WeeklyPlanExcelReader {
 
                 int classSize = integer(table, row, "si so", 1, 1000, label);
 
-                // Nếu dòng này được đánh dấu rõ là lớp Thực hành (TH), giữ nguyên sĩ số của dòng đó cho phòng LAB
                 var course = CourseDemandDTO.builder()
                         .stt(String.valueOf(i + 1))
                         .courseCode(code)

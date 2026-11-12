@@ -32,13 +32,12 @@ public class ScheduleAccess {
         return account != null && account.teacherId().equals(teacherId);
     }
 
-    /** Bộ môn mà tài khoản hiện tại làm trưởng; null nếu không phải trưởng bộ môn. */
+
     public Long headDepartmentId() {
         var account = account();
         return account != null && account.departmentHead() ? account.departmentId() : null;
     }
 
-    /** Admin thao tác được mọi bộ môn; trưởng bộ môn chỉ thao tác trên bộ môn của mình. */
     public void requireDepartmentAccess(Long departmentId) {
         if (isAdmin()) return;
         Long own = headDepartmentId();

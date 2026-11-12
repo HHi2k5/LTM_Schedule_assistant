@@ -160,9 +160,7 @@ public class ExcelScheduleService {
         scheduleService.saveOrUpdateSchoolSchedule(uploadRequest);
     }
 
-    /**
-     * Wrapper giữ tương thích nếu nơi khác gọi hàm 1 file
-     */
+   
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFromExcel(
             MultipartFile file,
@@ -238,11 +236,12 @@ public class ExcelScheduleService {
             }
         }
 
+        String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId.trim() : "PTIT";
         SchoolConfigDTO targetSchool = SchoolConfigDTO.builder()
-                .schoolId(schoolId != null ? schoolId : "PTIT")
+                .schoolId(resolvedSchoolId)
                 .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
                 .colorCode("#dc2626")
-                .periods(getDefault12PeriodsWithNoonSlot6())
+                .periods(catalogService.listPeriodTemplates(resolvedSchoolId))
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
@@ -256,9 +255,7 @@ public class ExcelScheduleService {
         return autoScheduleService.generateSchoolWideSchedule(request);
     }
 
-    /**
-     * 2. Xử lý trọn bộ 3 file Excel
-     */
+    
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFrom3Files(
             MultipartFile planFile,
@@ -303,7 +300,7 @@ public class ExcelScheduleService {
                 .schoolId(resolvedSchoolId)
                 .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
                 .colorCode("#dc2626")
-                .periods(getDefault12PeriodsWithNoonSlot6())
+                .periods(catalogService.listPeriodTemplates(resolvedSchoolId))
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
@@ -402,9 +399,7 @@ public class ExcelScheduleService {
         return periods.isEmpty() ? getDefault12PeriodsWithNoonSlot6() : periods;
     }
 
-    /**
-     * Cấu hình chuẩn mặc định (Khung 12h-13h gán là Tiết 6)
-     */
+   
     private List<PeriodTimeDTO> getDefault12PeriodsWithNoonSlot6() {
         return List.of(
                 new PeriodTimeDTO(1, LocalTime.of(7, 0), LocalTime.of(7, 50)),
@@ -422,7 +417,6 @@ public class ExcelScheduleService {
         );
     }
 
-    // ==============================================================================
 
     private List<Room> parseAndSaveRoomExcel(MultipartFile roomFile, String schoolCode) throws Exception {
         if (roomFile != null && !roomFile.isEmpty()) {

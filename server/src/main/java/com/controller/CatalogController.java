@@ -1,6 +1,8 @@
 package com.controller;
 
 import com.dto.DepartmentDTO;
+import com.dto.PeriodTemplateRequest;
+import com.dto.PeriodTimeDTO;
 import com.model.Department;
 import com.model.RoomType;
 import com.model.Subject;
@@ -12,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-/** Danh mục bộ môn, môn học và loại phòng của khoa. */
+
 @RestController
 @RequestMapping("/api/schedule")
 @RequiredArgsConstructor
@@ -21,6 +23,17 @@ public class CatalogController {
 
     private static ResponseEntity<Map<String, String>> done(String message) {
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", message));
+    }
+
+    @GetMapping("/period-templates")
+    public ResponseEntity<List<PeriodTimeDTO>> periodTemplates(@RequestParam(defaultValue = "PTIT") String schoolId) {
+        return ResponseEntity.ok(catalog.listPeriodTemplates(schoolId));
+    }
+
+    @PostMapping("/period-templates")
+    public ResponseEntity<List<PeriodTimeDTO>> savePeriodTemplates(@RequestBody PeriodTemplateRequest payload) {
+        if (payload == null) throw new IllegalArgumentException("Thiếu danh sách khung giờ tiết học.");
+        return ResponseEntity.ok(catalog.savePeriodTemplates(payload.schoolCode(), payload.periods()));
     }
 
     @GetMapping("/departments")

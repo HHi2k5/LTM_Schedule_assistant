@@ -19,7 +19,6 @@ export const postJson = (path, body) => api(path, {
   body: JSON.stringify(body),
 });
 
-/** "--11-111" -> "3–4, 6–8": các tuần có buổi học, gộp thành khoảng liên tiếp. */
 export function weekRanges(weekSchedule) {
   const weeks = String(weekSchedule || '');
   const ranges = [];
@@ -37,7 +36,7 @@ export function firstWeek(weekSchedule) {
   return index < 0 ? null : index + 1;
 }
 
-/** Tải một workbook ExcelJS về máy. */
+
 export async function downloadWorkbook(workbook, filename) {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

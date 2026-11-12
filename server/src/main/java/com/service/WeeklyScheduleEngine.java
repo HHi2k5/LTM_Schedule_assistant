@@ -24,10 +24,7 @@ final class WeeklyScheduleEngine {
     private final Map<ScheduleKey, GeneratedClassSlot> mergedSlots = new LinkedHashMap<>();
     private final Map<ScheduleKey, TeachingCourseDTO> mergedCourses = new LinkedHashMap<>();
     private static final int SEARCH_BUDGET = 2_000_000;
-    /**
-     * Admin chỉ xếp lớp vào phòng: mọi lớp tạm thuộc "giảng viên" hệ thống này cho tới khi
-     * trưởng bộ môn phân công, nên các ràng buộc theo giảng viên không áp dụng ở bước xếp phòng.
-     */
+   
     private static final TeacherCandidateDTO UNASSIGNED = TeacherCandidateDTO.builder()
             .teacherId(Teacher.UNASSIGNED_ID).teacherName(Teacher.UNASSIGNED_NAME).theoryWeight(1).practiceWeight(1).build();
 
@@ -395,7 +392,7 @@ final class WeeklyScheduleEngine {
             int ceiling) {
 
         String school = request.getTargetSchool().getSchoolId();
-        var candidateStarts = SchedulingPolicy.candidateStartPeriods(periods.keySet(), count);
+        var candidateStarts = SchedulingPolicy.candidateStartPeriods(periods, periods.keySet(), count);
         DayOfWeek preferredDay = previous.isEmpty() ? null : previous.getLast().date().getDayOfWeek();
         Integer preferredStart = previous.isEmpty() ? null : previous.getLast().start();
         String preferredRoom = previous.isEmpty() ? null : previous.getLast().room().getRoomCode();
@@ -525,7 +522,7 @@ final class WeeklyScheduleEngine {
         var practiceDatesByClass = new HashMap<String, List<LocalDate>>();
 
         for (var slot : slots) {
-            if (slot.getStartPeriod() == SchedulingPolicy.FORBIDDEN_MULTI_PERIOD_START && slot.getNumPeriods() > 1) {
+            if (SchedulingPolicy.isForbiddenStart(periods, slot.getStartPeriod(), slot.getNumPeriods())) {
                 warnings.add("Vi phạm chính sách tiết bắt đầu: lớp " + slot.getCourseCode() + " (" + slot.getClassGroup() + ") bắt đầu ở tiết 5 với " + slot.getNumPeriods() + " tiết.");
             }
             boolean isPractice = "PRACTICE".equals(slot.getSessionType());
@@ -663,13 +660,12 @@ final class WeeklyScheduleEngine {
         return practice ? teacher.getPracticeWeight() : teacher.getTheoryWeight();
     }
 
-    /** Mã loại phòng mà môn bắt buộc cho loại lớp này; null nếu môn không yêu cầu loại phòng cụ thể. */
+   
     static String requiredRoomType(CourseDemandDTO course, boolean practice) {
         String required = practice ? course.getPracticeRoomType() : course.getTheoryRoomType();
         return required == null || required.isBlank() ? null : required.trim();
     }
-
-    /** Môn có yêu cầu loại phòng thì phòng phải đúng loại đó; không thì chỉ cần đúng nhóm phòng LT/TH. */
+ /** Môn có yêu cầu loại phòng thì phòng phải đúng loại đó; không thì chỉ cần đúng nhóm phòng LT/TH. */
     static boolean roomFits(CourseDemandDTO course, boolean practice, Room room) {
         String required = requiredRoomType(course, practice);
         if (required != null) return required.equalsIgnoreCase(room.getRoomType());
@@ -786,7 +782,7 @@ final class WeeklyScheduleEngine {
         byTeacher.computeIfAbsent(teacher.getTeacherId(), ignored -> new ArrayList<>()).add(TeachingCourseDTO.builder()
                 .courseCode(unit.course().getCourseCode()).courseName(display).room(s.room().getRoomCode())
                 .dayOfWeek(s.date().getDayOfWeek().getValue() + 1).startPeriod(s.start()).numPeriods(s.count()).weekSchedule(weeks)
-                .sourceType("WEEKLY_AUTO").scheduleClassId(unit.id()).scheduleParentId(unit.parent()).sessionType(unit.type()).planSnapshot(snapshot).build());
+                .sourceType("WEEKLY_AUTO").workflowStatus("DRAFT").scheduleClassId(unit.id()).scheduleParentId(unit.parent()).sessionType(unit.type()).planSnapshot(snapshot).build());
         mergedSlots.put(key, slots.getLast());
         mergedCourses.put(key, byTeacher.get(teacher.getTeacherId()).getLast());
     }

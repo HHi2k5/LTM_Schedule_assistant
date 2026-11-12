@@ -127,7 +127,6 @@ public class ScheduleController {
         return ResponseEntity.ok(response);
     }
 
-    // ==================== QUẢN LÝ PHÒNG HỌC ====================
     @GetMapping("/rooms")
     public ResponseEntity<List<Room>> getAllRooms(@RequestParam(defaultValue = "PTIT") String schoolId) {
         return ResponseEntity.ok(catalogService.listRooms(schoolId));
@@ -144,7 +143,6 @@ public class ScheduleController {
         return ResponseEntity.ok(Map.of("status", "SUCCESS", "message", "Đã xóa phòng học."));
     }
 
-    // ==================== QUẢN LÝ GIẢNG VIÊN (BỘ MÔN, LOẠI GV, MÔN PHỤ TRÁCH / DẠY THAY) ====================
     @GetMapping("/teacher-subjects")
     public ResponseEntity<List<TeacherAccountDTO>> getTeacherSubjects(
             @RequestParam(defaultValue = "PTIT") String schoolId,

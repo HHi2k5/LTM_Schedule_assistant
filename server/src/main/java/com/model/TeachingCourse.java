@@ -19,6 +19,8 @@ public class TeachingCourse {
     private String sessionType;
     @Column(name = "plan_snapshot", columnDefinition = "LONGTEXT")
     private String planSnapshot;
+    @Column(name = "workflow_status", length = 30)
+    private String workflowStatus;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

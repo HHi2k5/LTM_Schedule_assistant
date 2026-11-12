@@ -36,7 +36,7 @@ public class Room {
     @Column(name = "school_code", length = 50)
     private String schoolCode;
 
-    /** Ghi chú tự do, VD: "Sức chứa 30 nhưng chỉ có 20 máy". */
+  
     @Column(name = "note", length = 500)
     private String note;
 }

@@ -38,7 +38,7 @@ export default function AuthPage({ onAuthenticated }) {
         throw new Error(result.message || 'Đăng nhập thất bại.');
       }
 
-      if (!result.accessToken || !['ADMIN', 'TEACHER'].includes(result.role)) {
+      if (!result.accessToken || !['ADMIN', 'DEPT_HEAD', 'TEACHER'].includes(result.role)) {
         throw new Error('Máy chủ chưa trả phiên đăng nhập hợp lệ.');
       }
       setAccessToken(result.accessToken);
@@ -49,6 +49,9 @@ export default function AuthPage({ onAuthenticated }) {
         username: result.username,
         role: result.role,
         semesterStartDate: result.semesterStartDate || '2026-08-10',
+        departmentId: result.departmentId ?? null,
+        departmentName: result.departmentName || '',
+        teacherType: result.teacherType || 'GIANG_VIEN',
       });
     } catch (err) {
       setMessage('');
@@ -89,7 +92,7 @@ export default function AuthPage({ onAuthenticated }) {
         </div>
 
         <p className="muted-text" style={{ marginBottom: '1rem' }}>
-          Giảng viên đăng nhập bằng <strong>Tài khoản</strong> và <strong>Mật khẩu</strong> do Quản trị viên (Admin) của khoa cấp. Sau khi đăng nhập, giảng viên có thể vào mục <strong>Cài đặt</strong> để đổi mật khẩu cá nhân.
+          Giảng viên và Trưởng bộ môn đăng nhập bằng <strong>Tài khoản</strong> và <strong>Mật khẩu</strong> do Quản trị viên (Admin) của khoa cấp. Sau khi đăng nhập, có thể vào mục <strong>Cài đặt</strong> để đổi mật khẩu cá nhân.
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -121,7 +124,7 @@ export default function AuthPage({ onAuthenticated }) {
             </label>
           </fieldset>
 
-          <FormError message={error}/>
+          <FormError message={error} />
 
           {message && (
             <div role="status" className="info-banner" style={{ marginTop: '1rem' }}>

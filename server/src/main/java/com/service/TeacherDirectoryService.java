@@ -20,7 +20,7 @@ import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.*;
 
-/** Hồ sơ giảng viên của khoa: bộ môn, loại giảng viên, môn phụ trách và môn có thể dạy thay. */
+
 @Service
 @RequiredArgsConstructor
 public class TeacherDirectoryService {
@@ -31,7 +31,6 @@ public class TeacherDirectoryService {
     private final PasswordEncoder passwordEncoder;
     private final ScheduleAccess access;
 
-    /** Mật khẩu mặc định: tên không dấu viết liền (chữ thường) + mã GV. VD: "Đào Ngọc Phong" + "GV01" -> "daongocphongGV01". */
     public static String defaultPassword(String fullName, String teacherId) {
         String noAccent = Normalizer.normalize(fullName == null ? "" : fullName, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "").replace('đ', 'd').replace('Đ', 'D')
@@ -49,7 +48,7 @@ public class TeacherDirectoryService {
                 .practiceWeight(row.getPracticeWeight()).kind(kind(row.getAssignmentKind())).build();
     }
 
-    /** Admin xem mọi giảng viên (lọc theo bộ môn nếu cần); trưởng bộ môn chỉ xem bộ môn mình và không thấy mật khẩu mặc định. */
+    
     @Transactional(readOnly = true)
     public List<TeacherAccountDTO> list(String schoolId, Long departmentId) {
         String schoolCode = CatalogService.school(schoolId);
@@ -105,6 +104,12 @@ public class TeacherDirectoryService {
     @Transactional
     public TeacherAccountDTO save(TeacherAccountDTO payload) {
         if (payload == null) throw new IllegalArgumentException("Thiếu thông tin giảng viên.");
+        boolean admin = access.isAdmin();
+        Long ownDept = admin ? null : access.headDepartmentId();
+        if (!admin && ownDept == null) {
+            throw new AccessDeniedException("Bạn không có quyền quản lý giảng viên.");
+        }
+
         String schoolCode = CatalogService.school(payload.getSchoolCode());
         if (payload.getTeacherId() == null || payload.getTeacherId().isBlank()) {
             throw new IllegalArgumentException("Vui lòng nhập Mã giảng viên.");
@@ -118,8 +123,13 @@ public class TeacherDirectoryService {
         ScheduleValidation.text(teacherName, 100, "Họ tên giảng viên");
         if (Teacher.UNASSIGNED_ID.equals(teacherId)) throw new IllegalArgumentException("Mã giảng viên này được hệ thống sử dụng.");
 
-        if (payload.getDepartmentId() == null) throw new IllegalArgumentException("Vui lòng chọn bộ môn của giảng viên.");
-        Department department = departments.findById(payload.getDepartmentId())
+        Long targetDeptId = admin ? payload.getDepartmentId() : ownDept;
+        if (targetDeptId == null) throw new IllegalArgumentException("Vui lòng chọn bộ môn của giảng viên.");
+        if (!admin && payload.getDepartmentId() != null && !ownDept.equals(payload.getDepartmentId())) {
+            throw new AccessDeniedException("Trưởng bộ môn chỉ được thao tác trong bộ môn của mình.");
+        }
+
+        Department department = departments.findById(targetDeptId)
                 .filter(found -> found.getSchoolCode().equals(schoolCode))
                 .orElseThrow(() -> new IllegalArgumentException("Bộ môn không còn tồn tại."));
 
@@ -133,7 +143,7 @@ public class TeacherDirectoryService {
                     .theoryWeight(payload.getTheoryWeight()).practiceWeight(payload.getPracticeWeight()).build());
         }
         subjectList.removeIf(subject -> subject == null || subject.getCourseCode() == null || subject.getCourseCode().isBlank());
-        if (subjectList.isEmpty()) throw new IllegalArgumentException("Vui lòng thêm ít nhất một môn học cho giảng viên.");
+        if (subjectList.isEmpty()) throw new IllegalArgumentException("Vui lòng chọn ít nhất một môn học cho giảng viên.");
 
         var catalog = new HashMap<String, Subject>();
         for (Subject subject : subjects.findByDepartmentIdOrderByCourseCodeAsc(department.getId())) {
@@ -155,42 +165,76 @@ public class TeacherDirectoryService {
         Teacher teacher = teachers.findById(teacherId).orElse(null);
         String generatedPassword = defaultPassword(teacherName, teacherId);
         Long previousDepartment = teacher == null ? null : teacher.getDepartmentId();
-        if (teacher == null) {
-            teacher = Teacher.builder().teacherId(teacherId).fullName(teacherName).username(teacherId)
-                    .password(passwordEncoder.encode(generatedPassword)).role(Teacher.ROLE_TEACHER)
-                    .semesterStartDate(LocalDate.of(2026, 8, 10)).build();
-        } else {
-            teacher.setFullName(teacherName);
-            if (teacher.getUsername() == null || teacher.getUsername().isBlank()) teacher.setUsername(teacherId);
-            if (teacher.getPassword() == null || teacher.getPassword().isBlank()) {
-                teacher.setPassword(passwordEncoder.encode(generatedPassword));
-            }
-        }
-        String type = payload.getTeacherType() == null || payload.getTeacherType().isBlank()
-                ? teacher.effectiveType() : payload.getTeacherType().trim().toUpperCase(Locale.ROOT);
-        if (!Teacher.TYPES.contains(type)) throw new IllegalArgumentException("Loại giảng viên không hợp lệ.");
-        teacher.setDepartmentId(department.getId());
-        teacher.setTeacherType(type);
-        // Vai trò đăng nhập đi theo loại giảng viên; tài khoản quản trị không bị đổi vai trò.
-        if (!Teacher.ROLE_ADMIN.equals(teacher.getRole())) {
-            teacher.setRole(Teacher.TYPE_HEAD.equals(type) ? Teacher.ROLE_DEPT_HEAD : Teacher.ROLE_TEACHER);
-        }
-        teachers.save(teacher);
 
-        if (Teacher.TYPE_HEAD.equals(type)) {
-            // Mỗi bộ môn chỉ có một trưởng bộ môn: người cũ trở lại làm giảng viên.
-            for (Teacher other : teachers.findByDepartmentId(department.getId())) {
-                if (other.getTeacherId().equals(teacherId)) continue;
-                if (!Teacher.TYPE_HEAD.equals(other.effectiveType()) && !Teacher.ROLE_DEPT_HEAD.equals(other.getRole())) continue;
-                other.setTeacherType(Teacher.TYPE_LECTURER);
-                if (!Teacher.ROLE_ADMIN.equals(other.getRole())) other.setRole(Teacher.ROLE_TEACHER);
-                teachers.save(other);
+        String requestedType = payload.getTeacherType() == null || payload.getTeacherType().isBlank()
+                ? (teacher == null ? Teacher.TYPE_LECTURER : teacher.effectiveType())
+                : payload.getTeacherType().trim().toUpperCase(Locale.ROOT);
+        if (!Teacher.TYPES.contains(requestedType)) throw new IllegalArgumentException("Loại giảng viên không hợp lệ.");
+
+        String effectiveType;
+        if (!admin) {
+            if (teacher == null) {
+                if (!Teacher.TYPE_VISITING.equals(requestedType)) {
+                    throw new AccessDeniedException("Trưởng bộ môn chỉ được thêm mới hồ sơ Giảng viên Thỉnh giảng.");
+                }
+                teacher = Teacher.builder()
+                        .teacherId(teacherId)
+                        .fullName(teacherName)
+                        .username(teacherId)
+                        .password(passwordEncoder.encode(generatedPassword))
+                        .role(Teacher.ROLE_TEACHER)
+                        .teacherType(Teacher.TYPE_VISITING)
+                        .departmentId(ownDept)
+                        .semesterStartDate(LocalDate.of(2026, 8, 10))
+                        .build();
+                teachers.save(teacher);
+            } else {
+                if (Teacher.ROLE_ADMIN.equals(teacher.getRole()) || teacher.unassignedPool()) {
+                    throw new AccessDeniedException("Không thể chỉnh sửa tài khoản quản trị/hệ thống.");
+                }
+                if (teacher.getDepartmentId() == null || !ownDept.equals(teacher.getDepartmentId())) {
+                    throw new AccessDeniedException("Giảng viên " + teacherId + " không thuộc bộ môn của bạn.");
+                }
+            
+                teacherName = teacher.getFullName();
             }
-        }
-        if (previousDepartment != null && !previousDepartment.equals(department.getId())) {
-            // Chuyển bộ môn: bỏ các môn của bộ môn cũ.
-            for (TeacherSubject row : teacherSubjects.findBySchoolCodeAndTeacherIdIgnoreCase(schoolCode, teacherId)) {
-                if (!catalog.containsKey(row.getCourseCode().toUpperCase(Locale.ROOT))) teacherSubjects.delete(row);
+            effectiveType = teacher.effectiveType();
+        } else {
+            if (teacher == null) {
+                teacher = Teacher.builder().teacherId(teacherId).fullName(teacherName).username(teacherId)
+                        .password(passwordEncoder.encode(generatedPassword)).role(Teacher.ROLE_TEACHER)
+                        .semesterStartDate(LocalDate.of(2026, 8, 10)).build();
+            } else {
+                teacher.setFullName(teacherName);
+                if (teacher.getUsername() == null || teacher.getUsername().isBlank()) teacher.setUsername(teacherId);
+                if (teacher.getPassword() == null || teacher.getPassword().isBlank()) {
+                    teacher.setPassword(passwordEncoder.encode(generatedPassword));
+                }
+            }
+            effectiveType = requestedType;
+            teacher.setDepartmentId(department.getId());
+            teacher.setTeacherType(effectiveType);
+           
+            if (!Teacher.ROLE_ADMIN.equals(teacher.getRole())) {
+                teacher.setRole(Teacher.TYPE_HEAD.equals(effectiveType) ? Teacher.ROLE_DEPT_HEAD : Teacher.ROLE_TEACHER);
+            }
+            teachers.save(teacher);
+
+            if (Teacher.TYPE_HEAD.equals(effectiveType)) {
+                // Mỗi bộ môn chỉ có một trưởng bộ môn: người cũ trở lại làm giảng viên.
+                for (Teacher other : teachers.findByDepartmentId(department.getId())) {
+                    if (other.getTeacherId().equals(teacherId)) continue;
+                    if (!Teacher.TYPE_HEAD.equals(other.effectiveType()) && !Teacher.ROLE_DEPT_HEAD.equals(other.getRole())) continue;
+                    other.setTeacherType(Teacher.TYPE_LECTURER);
+                    if (!Teacher.ROLE_ADMIN.equals(other.getRole())) other.setRole(Teacher.ROLE_TEACHER);
+                    teachers.save(other);
+                }
+            }
+            if (previousDepartment != null && !previousDepartment.equals(department.getId())) {
+                // Chuyển bộ môn: bỏ các môn của bộ môn cũ.
+                for (TeacherSubject row : teacherSubjects.findBySchoolCodeAndTeacherIdIgnoreCase(schoolCode, teacherId)) {
+                    if (!catalog.containsKey(row.getCourseCode().toUpperCase(Locale.ROOT))) teacherSubjects.delete(row);
+                }
             }
         }
 
@@ -226,13 +270,24 @@ public class TeacherDirectoryService {
         }
 
         return TeacherAccountDTO.builder().schoolCode(schoolCode).teacherId(teacherId).teacherName(teacherName)
-                .username(teacher.getUsername()).defaultPassword(generatedPassword)
+                .username(admin ? teacher.getUsername() : null)
+                .defaultPassword(admin ? generatedPassword : null)
                 .departmentId(department.getId()).departmentName(department.getName())
-                .teacherType(type).role(teacher.getRole()).subjects(saved).build();
+                .teacherType(effectiveType).role(teacher.getRole()).subjects(saved).build();
     }
 
     @Transactional
     public void deleteAssignment(Long id) {
-        teacherSubjects.deleteById(id);
+        TeacherSubject row = teacherSubjects.findById(id).orElse(null);
+        if (row == null) return;
+        if (!access.isAdmin()) {
+            Long ownDept = access.headDepartmentId();
+            if (ownDept == null) throw new AccessDeniedException("Bạn không có quyền gỡ môn học của giảng viên.");
+            Teacher target = teachers.findById(row.getTeacherId().trim().toUpperCase(Locale.ROOT)).orElse(null);
+            if (target == null || target.getDepartmentId() == null || !ownDept.equals(target.getDepartmentId())) {
+                throw new AccessDeniedException("Bạn chỉ được gỡ môn học của giảng viên thuộc bộ môn mình.");
+            }
+        }
+        teacherSubjects.delete(row);
     }
 }

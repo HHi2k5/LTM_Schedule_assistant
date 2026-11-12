@@ -21,6 +21,6 @@ public class PersonalCourseDTO {
     private int numPeriods;
     private String weekSchedule;
     private String sourceType;
-    /** true = lịch do khoa xếp/phân (WEEKLY_AUTO, VISITING_AUTO) – không được xóa từ phía giảng viên. */
+    
     private boolean departmentAssigned;
 }

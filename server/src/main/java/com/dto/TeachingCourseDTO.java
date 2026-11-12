@@ -21,6 +21,7 @@ public class TeachingCourseDTO {
     private String sessionType;
     @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
     private String planSnapshot;
+    private String workflowStatus;
     private String courseCode;
     private String courseName;
     private String room;

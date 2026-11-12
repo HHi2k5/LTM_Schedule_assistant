@@ -3,7 +3,7 @@ package com.model;
 import jakarta.persistence.*;
 import lombok.*;
 
-/** Loại phòng (phòng máy, lý thuyết, máy chiếu, thực hành...) và nhóm lớp mà loại phòng đó phục vụ. */
+
 @Entity
 @Table(name = "room_types", uniqueConstraints = @UniqueConstraint(name = "uq_room_type_school_code", columnNames = {"school_code", "code"}))
 @Data
@@ -28,7 +28,7 @@ public class RoomType {
     @Column(name = "name", nullable = false, length = 100)
     private String name;
 
-    /** THEORY: dùng cho lớp lý thuyết; PRACTICE: dùng cho lớp thực hành. */
+  
     @Column(name = "usage_kind", nullable = false, length = 20)
     private String usageKind;
 

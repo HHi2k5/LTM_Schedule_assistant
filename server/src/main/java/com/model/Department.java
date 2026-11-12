@@ -3,7 +3,7 @@ package com.model;
 import jakarta.persistence.*;
 import lombok.*;
 
-/** Bộ môn của khoa (VD: Công nghệ phần mềm, Hệ thống thông tin). */
+
 @Entity
 @Table(name = "departments", uniqueConstraints = @UniqueConstraint(name = "uq_department_school_code", columnNames = {"school_code", "code"}))
 @Data

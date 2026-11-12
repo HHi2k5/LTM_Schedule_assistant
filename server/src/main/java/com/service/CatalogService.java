@@ -1,6 +1,7 @@
 package com.service;
 
 import com.dto.DepartmentDTO;
+import com.dto.PeriodTimeDTO;
 import com.model.*;
 import com.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.text.Normalizer;
 import java.util.*;
 
-/** Danh mục của khoa: bộ môn, môn học, loại phòng và phòng học. */
+
 @Service
 @RequiredArgsConstructor
 public class CatalogService {
@@ -20,6 +21,10 @@ public class CatalogService {
     private final RoomRepository rooms;
     private final TeacherRepository teachers;
     private final TeacherSubjectRepository teacherSubjects;
+    private final SchoolPeriodTemplateRepository periodTemplates;
+    private final SchoolRepository schools;
+    private final ScheduleWriteLock writeLock;
+    private final ScheduleChangePublisher changes;
 
     private static final List<RoomType> DEFAULT_ROOM_TYPES = List.of(
             RoomType.builder().code("LY_THUYET").name("Phòng lý thuyết").usageKind(RoomType.THEORY).build(),
@@ -35,7 +40,7 @@ public class CatalogService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    /** "Phòng máy chiếu" -> "PHONG_MAY_CHIEU". */
+   
     static String slug(String value, int max) {
         String ascii = Normalizer.normalize(value == null ? "" : value, Normalizer.Form.NFD).replaceAll("\\p{M}", "")
                 .replace('đ', 'd').replace('Đ', 'D').toUpperCase(Locale.ROOT)
@@ -43,9 +48,104 @@ public class CatalogService {
         return ascii.length() > max ? ascii.substring(0, max) : ascii;
     }
 
-    // ==================== LOẠI PHÒNG ====================
 
-    /** Tạo loại phòng mặc định cho đơn vị chưa có và chuyển phòng mang loại cũ sang mã loại phòng mới. */
+
+    @Transactional(readOnly = true)
+    public List<PeriodTimeDTO> listPeriodTemplates(String schoolCode) {
+        String code = school(schoolCode);
+        return periodTemplates.findBySchoolCodeOrderByPeriodNumberAsc(code).stream()
+                .map(item -> new PeriodTimeDTO(item.getPeriodNumber(), item.getStartTime(), item.getEndTime()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PeriodTimeDTO> requirePeriodTemplates(String schoolCode) {
+        List<PeriodTimeDTO> list = listPeriodTemplates(schoolCode);
+        if (list.isEmpty()) {
+            throw new IllegalArgumentException("Chưa cấu hình khung giờ tiết học. Vui lòng thêm tiết ở trang Khung giờ tiết học.");
+        }
+        return list;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public List<PeriodTimeDTO> savePeriodTemplates(String schoolCode, List<PeriodTimeDTO> periods) {
+        String code = school(schoolCode);
+        Map<Integer, PeriodTimeDTO> validated = ScheduleValidation.periods(periods);
+        writeLock.acquire();
+
+        List<Teacher> allTeachers = teachers.findAllWithFullSchedule();
+        for (Teacher teacher : allTeachers) {
+            if (teacher.getSchools() == null) continue;
+            for (School s : teacher.getSchools()) {
+                if (!code.equalsIgnoreCase(s.getSchoolCode()) || s.getCourses() == null) continue;
+                for (TeachingCourse course : s.getCourses()) {
+                    if (!ScheduleService.isDepartmentCourse(course)) continue;
+                    if (!ScheduleValidation.hasPeriods(validated, course.getStartPeriod(), course.getNumPeriods())) {
+                        int endP = course.getStartPeriod() + course.getNumPeriods() - 1;
+                        throw new IllegalArgumentException(
+                                "Đang có lịch khoa (" + course.getCourseName() + ") học từ tiết "
+                                + course.getStartPeriod() + " đến tiết " + endP
+                                + ". Hãy giữ lại các tiết này hoặc xóa lịch cũ của khoa trước khi đổi khung giờ.");
+                    }
+                }
+            }
+        }
+
+        periodTemplates.deleteBySchoolCode(code);
+        periodTemplates.flush();
+
+        var saved = new ArrayList<PeriodTimeDTO>();
+        for (PeriodTimeDTO pt : validated.values()) {
+            periodTemplates.save(SchoolPeriodTemplate.builder()
+                    .schoolCode(code)
+                    .periodNumber(pt.getPeriod())
+                    .startTime(pt.getStart())
+                    .endTime(pt.getEnd())
+                    .build());
+            saved.add(new PeriodTimeDTO(pt.getPeriod(), pt.getStart(), pt.getEnd()));
+        }
+
+        for (Teacher teacher : allTeachers) {
+            if (teacher.getSchools() == null) continue;
+            for (School s : teacher.getSchools()) {
+                if (!code.equalsIgnoreCase(s.getSchoolCode()) || s.getCourses() == null || s.getCourses().isEmpty()) continue;
+                boolean hasDept = s.getCourses().stream().anyMatch(ScheduleService::isDepartmentCourse);
+                if (!hasDept) continue;
+                boolean allDept = s.getCourses().stream().allMatch(ScheduleService::isDepartmentCourse);
+                if (allDept) {
+                    if (s.getPeriods() == null) s.setPeriods(new HashSet<>());
+                    s.getPeriods().clear();
+                    for (PeriodTimeDTO pt : saved) {
+                        s.getPeriods().add(SchoolPeriod.builder()
+                                .periodNumber(pt.getPeriod())
+                                .startTime(pt.getStart())
+                                .endTime(pt.getEnd())
+                                .school(s)
+                                .build());
+                    }
+                    for (TeachingCourse course : s.getCourses()) {
+                        course.setCustomStartTime(null);
+                        course.setCustomEndTime(null);
+                    }
+                } else {
+                    if (s.getPeriods() == null) s.setPeriods(new HashSet<>());
+                    for (TeachingCourse course : s.getCourses()) {
+                        if (!ScheduleService.isDepartmentCourse(course)) continue;
+                        int endP = course.getStartPeriod() + course.getNumPeriods() - 1;
+                        course.setCustomStartTime(validated.get(course.getStartPeriod()).getStart());
+                        course.setCustomEndTime(validated.get(endP).getEnd());
+                    }
+                }
+                schools.save(s);
+                changes.changed(teacher.getTeacherId());
+            }
+        }
+
+        return saved;
+    }
+
+   
+
     @Transactional
     public void ensureRoomTypes(String schoolCode) {
         String code = school(schoolCode);
@@ -101,7 +201,6 @@ public class CatalogService {
         type.setUsageKind(payload.getUsageKind());
         RoomType saved = roomTypes.save(type);
         if (usageChanged) {
-            // Môn đang yêu cầu loại phòng này cho nhóm lớp cũ thì không còn hợp lệ.
             for (Subject subject : subjects.findBySchoolCodeOrderByCourseCodeAsc(schoolCode)) {
                 if (saved.getCode().equalsIgnoreCase(subject.getTheoryRoomType())
                         || saved.getCode().equalsIgnoreCase(subject.getPracticeRoomType())) {
@@ -134,7 +233,7 @@ public class CatalogService {
         roomTypes.delete(type);
     }
 
-    // ==================== PHÒNG HỌC ====================
+
 
     @Transactional
     public List<Room> listRooms(String schoolCode) {
@@ -151,7 +250,6 @@ public class CatalogService {
         String roomCode = payload.getRoomCode().trim();
 
         String typeCode = blankToNull(payload.getRoomType());
-        // Giá trị cũ của giao diện trước đây: THEORY / PRACTICE.
         if (typeCode == null) typeCode = payload.isLab() ? "THUC_HANH" : "LY_THUYET";
         else if (typeCode.equalsIgnoreCase("THEORY")) typeCode = "LY_THUYET";
         else if (typeCode.equalsIgnoreCase("PRACTICE")) typeCode = "THUC_HANH";
@@ -188,7 +286,7 @@ public class CatalogService {
         rooms.deleteById(id);
     }
 
-    // ==================== BỘ MÔN ====================
+   
 
     @Transactional(readOnly = true)
     public List<DepartmentDTO> listDepartments(String schoolCode) {
@@ -224,7 +322,6 @@ public class CatalogService {
         return departments.save(department);
     }
 
-    /** "Công nghệ phần mềm" -> "CNPM". */
     private static String initials(String name) {
         var builder = new StringBuilder();
         for (String word : slug(name, 200).split("_")) if (!word.isEmpty()) builder.append(word.charAt(0));
@@ -244,7 +341,7 @@ public class CatalogService {
         departments.delete(department);
     }
 
-    // ==================== MÔN HỌC ====================
+  
 
     @Transactional(readOnly = true)
     public List<Subject> listSubjects(String schoolCode, Long departmentId) {
@@ -252,7 +349,6 @@ public class CatalogService {
                 : subjects.findBySchoolCodeOrderByCourseCodeAsc(school(schoolCode));
     }
 
-    /** Gợi ý mã môn kế tiếp: mã bộ môn + số thứ tự 3 chữ số, bỏ qua các mã đã dùng. */
     @Transactional(readOnly = true)
     public String nextSubjectCode(Long departmentId) {
         Department department = departments.findById(departmentId)
@@ -294,7 +390,6 @@ public class CatalogService {
                 throw new IllegalArgumentException("Môn đang được gắn cho " + linked.size()
                         + " giảng viên; gỡ môn khỏi các giảng viên trước khi chuyển bộ môn.");
             }
-            // Giữ liên kết môn dạy của giảng viên khi đổi mã hoặc tên môn.
             for (TeacherSubject row : linked) {
                 row.setCourseCode(code);
                 row.setCourseName(name);
