@@ -377,6 +377,15 @@ export default function AutoSchedulePage({
             <Trash2 size={16} /> Xóa lịch cũ của Khoa
           </button>
         </div>
+        <button
+          type="button"
+          className="button"
+          style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+          disabled={busy}
+          onClick={handleClearDepartmentSchedule}
+        >
+          <Trash2 size={16} /> Xóa toàn bộ lịch cũ của Khoa
+        </button>
       </div>
 
       <form onSubmit={handleScheduleSubmit}>

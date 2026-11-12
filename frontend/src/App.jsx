@@ -43,6 +43,13 @@ function stored(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
 }
 
+function canAccessPage(user, pageId) {
+  if (pageId === 'resources' || pageId === 'autoschedule') {
+    return canSchedule(user);
+  }
+  return canVisit(user, pageId);
+}
+
 export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);

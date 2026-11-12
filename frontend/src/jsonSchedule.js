@@ -18,10 +18,10 @@ function integer(object, key, path) {
 
 export function parseJsonSchedule(source, knownStart) {
   let data;
-  try { 
-    data = JSON.parse(source.replace(/^\uFEFF/, '')); 
-  } catch { 
-    throw new Error('File JSON sai cú pháp. Kiểm tra dấu ngoặc, dấu phẩy và dấu nháy kép.'); 
+  try {
+    data = JSON.parse(source.replace(/^\uFEFF/, ''));
+  } catch {
+    throw new Error('File JSON sai cú pháp. Kiểm tra dấu ngoặc, dấu phẩy và dấu nháy kép.');
   }
 
   if (!isObject(data) || !isObject(data.school)) {
@@ -37,11 +37,11 @@ export function parseJsonSchedule(source, knownStart) {
   const periodRows = data.school.periods.map((period, index) => {
     const path = `school.periods[${index}]`;
     if (!isObject(period)) throw new Error(`JSON: ${path} phải là đối tượng tiết học.`);
-    return { 
-      period: integer(period, 'period', path), 
-      start: text(period, 'start', path, 8), 
-      end: text(period, 'end', path, 8), 
-      row: index + 1 
+    return {
+      period: integer(period, 'period', path),
+      start: text(period, 'start', path, 8),
+      end: text(period, 'end', path, 8),
+      row: index + 1
     };
   });
 
@@ -49,31 +49,31 @@ export function parseJsonSchedule(source, knownStart) {
     const path = `courses[${index}]`;
     if (!isObject(course)) throw new Error(`JSON: ${path} phải là đối tượng môn học.`);
     const normalized = {
-      courseCode: text(course, 'courseCode', path, 50), 
-      courseName: text(course, 'courseName', path), 
+      courseCode: text(course, 'courseCode', path, 50),
+      courseName: text(course, 'courseName', path),
       room: text(course, 'room', path),
-      dayOfWeek: integer(course, 'dayOfWeek', path), 
-      startPeriod: integer(course, 'startPeriod', path), 
+      dayOfWeek: integer(course, 'dayOfWeek', path),
+      startPeriod: integer(course, 'startPeriod', path),
       numPeriods: integer(course, 'numPeriods', path),
-      weekSchedule: text(course, 'weekSchedule', path, 104, true), 
+      weekSchedule: text(course, 'weekSchedule', path, 104, true),
       row: index + 1,
     };
     return normalized;
   });
 
   const metadata = {
-    teacherId: text(data, 'teacherId', 'lịch', 50), 
+    teacherId: text(data, 'teacherId', 'lịch', 50),
     teacherName: text(data, 'teacherName', 'lịch', 150),
     semesterStartDate: text(data, 'semesterStartDate', 'lịch', 10),
-    schoolId: text(data.school, 'schoolId', 'school', 50), 
+    schoolId: text(data.school, 'schoolId', 'school', 50),
     schoolName: text(data.school, 'schoolName', 'school', 150),
     colorCode: text(data.school, 'colorCode', 'school', 7),
   };
 
-  try { 
-    return buildUpload(validateScheduleRows(periodRows, courseRows), metadata, knownStart); 
-  } catch (error) { 
-    throw new Error(`JSON: ${error.message.replaceAll('Sheet TietHoc', 'school.periods').replaceAll('Sheet MonHoc', 'courses')}`); 
+  try {
+    return buildUpload(validateScheduleRows(periodRows, courseRows), metadata, knownStart);
+  } catch (error) {
+    throw new Error(`JSON: ${error.message.replaceAll('Sheet TietHoc', 'school.periods').replaceAll('Sheet MonHoc', 'courses')}`);
   }
 }
 
