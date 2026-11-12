@@ -14,15 +14,8 @@ final class WeeklyPlanExcelReader {
     private final DataFormatter formatter = new DataFormatter(Locale.ROOT);
     private record Table(Sheet sheet, int firstDataRow, Map<String, Integer> columns) {}
 
-    List<CourseDemandDTO> read(
-            MultipartFile plan,
-            MultipartFile teacherFile,
-            List<TeacherSubject> dbTeacherSubjects) throws Exception {
-
-        var teachers = (teacherFile != null && !teacherFile.isEmpty())
-                ? teachersFromExcel(teacherFile)
-                : teachersFromDatabase(dbTeacherSubjects);
-
+  
+    List<CourseDemandDTO> read(MultipartFile plan) throws Exception {
         var courses = new ArrayList<CourseDemandDTO>();
         validateFile(plan, "Kế hoạch mở lớp");
 
@@ -37,19 +30,6 @@ final class WeeklyPlanExcelReader {
                 String label = "Kế hoạch dòng " + (i + 1) + ": ";
                 String code = required(table, row, "ma mon", label).toUpperCase(Locale.ROOT);
                 String cohort = required(table, row, "khoa", label);
-
-                // Tìm giảng viên theo (Mã môn + Khóa) hoặc theo (Mã môn + mọi khóa "*")
-                var candidates = teachers.get(code + ":" + cohort);
-                if (candidates == null || candidates.isEmpty()) {
-                    candidates = teachers.get(code + ":*");
-                }
-                if (candidates == null || candidates.isEmpty()) {
-                    candidates = teachers.get(code);
-                }
-                if (candidates == null || candidates.isEmpty()) {
-                    // Missing assignments are reported per class after the remaining plan is scheduled.
-                    candidates = List.of();
-                }
 
                 // Xác định loại lớp: Lý thuyết (LT) hay Thực hành (TH) từ cột "Loại lớp"
                 String rawType = hasClassTypeCol ? value(table, row, "loai lop").toUpperCase(Locale.ROOT) : "";
@@ -80,7 +60,6 @@ final class WeeklyPlanExcelReader {
 
                 int classSize = integer(table, row, "si so", 1, 1000, label);
 
-                // Nếu dòng này được đánh dấu rõ là lớp Thực hành (TH), giữ nguyên sĩ số của dòng đó cho phòng LAB
                 var course = CourseDemandDTO.builder()
                         .stt(String.valueOf(i + 1))
                         .courseCode(code)
@@ -94,7 +73,7 @@ final class WeeklyPlanExcelReader {
                         .practiceGroupSize(isPracticeOnly ? classSize : null)
                         .studyStartDate(date(table, row, "tuan bat dau", label))
                         .studyEndDate(date(table, row, "tuan ket thuc", label))
-                        .teachers(candidates)
+                        .teachers(List.of())
                         .build();
 
                 courses.add(course);
@@ -103,55 +82,6 @@ final class WeeklyPlanExcelReader {
         }
         if (courses.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
         return courses;
-    }
-
-    private Map<String, List<TeacherCandidateDTO>> teachersFromDatabase(List<TeacherSubject> dbList) {
-        var result = new LinkedHashMap<String, List<TeacherCandidateDTO>>();
-        if (dbList == null) return result;
-        for (var ts : dbList) {
-            String code = ts.getCourseCode().trim().toUpperCase(Locale.ROOT);
-            String cohort = (ts.getCohort() == null || ts.getCohort().isBlank()) ? "*" : ts.getCohort().trim();
-            var candidate = TeacherCandidateDTO.builder()
-                    .teacherId(ts.getTeacherId().trim().toUpperCase(Locale.ROOT))
-                    .teacherName(ts.getTeacherName().trim())
-                    .theoryWeight(ts.getTheoryWeight() != null ? ts.getTheoryWeight() : 1)
-                    .practiceWeight(ts.getPracticeWeight() != null ? ts.getPracticeWeight() : 1)
-                    .build();
-
-            addCandidate(result.computeIfAbsent(code + ":" + cohort, k -> new ArrayList<>()), candidate);
-            addCandidate(result.computeIfAbsent(code, k -> new ArrayList<>()), candidate);
-        }
-        return result;
-    }
-
-    private void addCandidate(List<TeacherCandidateDTO> list, TeacherCandidateDTO candidate) {
-        if (list.stream().noneMatch(t -> t.getTeacherId().equalsIgnoreCase(candidate.getTeacherId()))) {
-            list.add(candidate);
-        }
-    }
-
-    private Map<String, List<TeacherCandidateDTO>> teachersFromExcel(MultipartFile file) throws Exception {
-        validateFile(file, "Danh sách GV");
-        var result = new LinkedHashMap<String, List<TeacherCandidateDTO>>();
-        try (var input = file.getInputStream(); var workbook = new XSSFWorkbook(input)) {
-            var table = table(workbook, List.of("ma mon", "khoa", "ma gv", "ho ten giang vien", "trong so lt", "trong so th"), "Danh sách GV");
-            for (int i = table.firstDataRow(); i <= table.sheet().getLastRowNum(); i++) {
-                Row row = table.sheet().getRow(i);
-                if (empty(row)) continue;
-                String label = "Danh sách GV dòng " + (i + 1) + ": ";
-                String code = required(table, row, "ma mon", label).toUpperCase(Locale.ROOT);
-                String cohort = required(table, row, "khoa", label);
-                var teacher = TeacherCandidateDTO.builder()
-                        .teacherId(required(table, row, "ma gv", label).toUpperCase(Locale.ROOT))
-                        .teacherName(required(table, row, "ho ten giang vien", label))
-                        .theoryWeight(integer(table, row, "trong so lt", 0, 10000, label))
-                        .practiceWeight(integer(table, row, "trong so th", 0, 10000, label))
-                        .build();
-                addCandidate(result.computeIfAbsent(code + ":" + cohort, k -> new ArrayList<>()), teacher);
-                addCandidate(result.computeIfAbsent(code, k -> new ArrayList<>()), teacher);
-            }
-        }
-        return result;
     }
 
     private Table findPlanTable(XSSFWorkbook workbook) {
@@ -175,26 +105,6 @@ final class WeeklyPlanExcelReader {
             }
         }
         throw new IllegalArgumentException("File Kế hoạch mở lớp thiếu các cột bắt buộc: Mã môn, Tên học phần, Loại lớp (LT/TH), Sĩ số, Khóa, Số lớp mở, Tuần bắt đầu, Tuần kết thúc.");
-    }
-
-    private Table table(XSSFWorkbook workbook, List<String> required, String label) {
-        if (workbook.getNumberOfSheets() == 0) throw new IllegalArgumentException(label + ": thiếu sheet.");
-        var sheet = workbook.getSheetAt(0);
-        for (int i = 0; i <= Math.min(10, sheet.getLastRowNum()); i++) {
-            var row = sheet.getRow(i);
-            if (row == null) continue;
-            var columns = new HashMap<String, Integer>();
-            for (var cell : row) {
-                String h = normalize(formatter.formatCellValue(cell));
-                if (h.startsWith("tuan bat dau")) h = "tuan bat dau";
-                if (h.startsWith("tuan ket thuc")) h = "tuan ket thuc";
-                if (h.equals("ten gv") || h.equals("ho ten")) h = "ho ten giang vien";
-                if (!h.isEmpty() && columns.putIfAbsent(h, cell.getColumnIndex()) != null)
-                    throw new IllegalArgumentException(label + ": cột trùng " + h);
-            }
-            if (columns.keySet().containsAll(required)) return new Table(sheet, i + 1, columns);
-        }
-        throw new IllegalArgumentException(label + ": thiếu cột bắt buộc " + String.join(", ", required));
     }
 
     private String normalize(String value) {

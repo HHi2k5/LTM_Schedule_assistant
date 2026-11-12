@@ -1,45 +1,109 @@
 import React, { useEffect, useState } from 'react';
-import { Upload, Download, Calendar, CheckCircle2, AlertTriangle, Plus, Trash2, Search, UserPlus } from 'lucide-react';
-import { api, addDays } from './schedule';
+import { Upload, Download, Calendar, CheckCircle2, AlertTriangle, Search, Trash2, Clock3, Send, RotateCcw, Layers } from 'lucide-react';
+import { api, addDays, clock } from './schedule';
+import { postJson } from './catalog';
 import { planWorkbook } from './autoScheduleWorkbook';
 import { scheduledWorkbook } from './scheduleExport';
 import { firstActiveWeek, isSavedAutoResult, unscheduledClasses, validateAutoResult, validateFile, validateSchool } from './workflow';
 import FormError from './FormError';
 
-function partitionPracticePeriods(total) {
-  const n = Number(total);
-  if (!Number.isInteger(n) || n < 3) return null;
-  for (let n4 = Math.floor(n / 4); n4 >= 0; n4--) {
-    const rem = n - 4 * n4;
-    if (rem % 3 === 0) {
-      const n3 = rem / 3;
-      return [...Array(n4).fill(4), ...Array(n3).fill(3)];
-    }
+const STORAGE_KEY = 'campus-last-autoschedule-meta';
+
+function readCachedMeta(schoolCode) {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+    return raw && raw.schoolId === schoolCode ? raw : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
-export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTeacherSchedule }) {
-  const [schoolId, setSchoolId] = useState('PTIT');
-  const [schoolName, setSchoolName] = useState('Khoa Công nghệ Thông tin - PTIT');
+function writeCachedMeta(data) {
+  try {
+    if (!data) sessionStorage.removeItem(STORAGE_KEY);
+    else sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    /* bỏ qua */
+  }
+}
+
+function buildResultFromOverview(overview, periods, schoolId, schoolName, fallbackStart, cachedMeta) {
+  const classes = Array.isArray(overview?.classes) ? overview.classes : [];
+  const cachedUnscheduled = Array.isArray(cachedMeta?.unscheduledClasses) ? cachedMeta.unscheduledClasses : [];
+  const slotMetaMap = cachedMeta?.slotMetaByClassId || {};
+  if (!classes.length && !cachedUnscheduled.length) return null;
+
+  const scheduledClasses = [];
+  for (const row of classes) {
+    const meta = slotMetaMap[row.classId] || {};
+    const sessions = Array.isArray(row.sessions) ? row.sessions : [];
+    for (const s of sessions) {
+      scheduledClasses.push({
+        classId: row.classId,
+        courseCode: row.courseCode,
+        baseCourseName: row.courseName,
+        courseName: meta.courseName || `${row.courseName} — ${row.label}`,
+        classGroup: row.label,
+        credits: meta.credits ?? null,
+        sessionType: row.sessionType,
+        teacherId: row.teacherId || null,
+        teacherName: row.teacherName || null,
+        studentCount: meta.studentCount ?? null,
+        room: s.room,
+        dayOfWeek: s.dayOfWeek,
+        startPeriod: s.startPeriod,
+        numPeriods: s.numPeriods,
+        weekSchedule: s.weekSchedule,
+        phaseNote: meta.phaseNote || row.departmentName || '',
+      });
+    }
+  }
+
+  const saved = scheduledClasses.length > 0;
+  return {
+    schoolId,
+    schoolName,
+    semesterStartDate: overview?.semesterStartDate || cachedMeta?.semesterStartDate || fallbackStart,
+    periods,
+    saved,
+    status: saved ? (cachedUnscheduled.length ? 'PARTIAL_SUCCESS' : 'SUCCESS') : 'NOT_SAVED',
+    message: cachedMeta?.message || `Đang lưu ${classes.length} lớp/nhóm đã xếp phòng trong hệ thống.`,
+    scheduledClasses,
+    unscheduledClasses: cachedUnscheduled,
+    catalogWarnings: Array.isArray(cachedMeta?.catalogWarnings) ? cachedMeta.catalogWarnings : [],
+    unscheduledWarnings: Array.isArray(cachedMeta?.unscheduledWarnings) ? cachedMeta.unscheduledWarnings : [],
+  };
+}
+
+function statusBadge(status) {
+  if (status === 'SUBMITTED_TO_ADMIN') {
+    return <span className="badge" style={{ background: '#dcfce7', color: '#166534' }}>Trưởng BM đã gửi kết quả</span>;
+  }
+  if (status === 'SENT_TO_DEPT') {
+    return <span className="badge" style={{ background: '#dbeafe', color: '#1e40af' }}>Đã chuyển về Bộ môn</span>;
+  }
+  if (status === 'DRAFT') {
+    return <span className="badge" style={{ background: '#fef3c7', color: '#92400e' }}>Chờ chuyển về Bộ môn</span>;
+  }
+  return <span className="badge muted">Chưa có lớp mở</span>;
+}
+
+export default function AutoSchedulePage({
+  semesterStart,
+  scheduleRevision = 0,
+  onScheduled,
+  onViewTeacherSchedule,
+  onNavigatePeriods,
+}) {
+  const [schoolId] = useState('PTIT');
+  const [schoolName] = useState('Khoa Công nghệ Thông tin - PTIT');
   const [startDate, setStartDate] = useState(semesterStart || '2026-08-10');
 
   const [planFile, setPlanFile] = useState(null);
-  const [savedTeachers, setSavedTeachers] = useState([]);
   const [savedRooms, setSavedRooms] = useState([]);
-
-  // Form Thỉnh giảng hỗ trợ nhiều môn / nhiều lớp cùng lúc
-  const [visitingForm, setVisitingForm] = useState({
-    teacherId: '',
-    teacherName: '',
-    assignments: [
-      { courseCode: '', courseName: '', cohort: '2024', classGroup: 'Lớp 01', sessionType: 'THEORY', studentCount: 60, requiredPeriods: 30 }
-    ],
-    studyStartDate: startDate,
-    studyEndDate: addDays(startDate, 105),
-    busyDaysOfWeek: [],
-    busyDatesText: ''
-  });
+  const [savedSubjects, setSavedSubjects] = useState([]);
+  const [periodTemplates, setPeriodTemplates] = useState([]);
+  const [departmentStatuses, setDepartmentStatuses] = useState([]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -51,44 +115,71 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
   const [filterText, setFilterText] = useState('');
   const [sessionFilter, setSessionFilter] = useState('ALL');
 
+  const firstSub = savedSubjects[0] || { courseCode: 'INT1313', courseName: 'Cơ sở dữ liệu' };
+  const secondSub = savedSubjects[1] || { courseCode: 'INT13165', courseName: 'Lập trình mạng' };
+
   const samplePlans = [
-    { courseCode: '61FIT3DBS', courseName: 'Cơ sở dữ liệu', classType: 'LT', classSize: 60, cohort: '2024', numClasses: 2, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 30 },
-    { courseCode: '61FIT3DBS', courseName: 'Cơ sở dữ liệu', classType: 'TH', classSize: 30, cohort: '2024', numClasses: 4, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 15 },
-    { courseCode: '61FIT3CGR', courseName: 'Đồ họa máy tính', classType: 'LT', classSize: 90, cohort: '2024', numClasses: 1, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 30 },
-    { courseCode: '61FIT3CGR', courseName: 'Đồ họa máy tính', classType: 'TH', classSize: 30, cohort: '2024', numClasses: 3, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 15 }
+    { courseCode: firstSub.courseCode, courseName: firstSub.courseName, classType: 'LT', classSize: 60, cohort: '2024', numClasses: 2, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 30 },
+    { courseCode: firstSub.courseCode, courseName: firstSub.courseName, classType: 'TH', classSize: 30, cohort: '2024', numClasses: 4, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 15 },
+    { courseCode: secondSub.courseCode, courseName: secondSub.courseName, classType: 'LT', classSize: 90, cohort: '2024', numClasses: 1, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 30 },
+    { courseCode: secondSub.courseCode, courseName: secondSub.courseName, classType: 'TH', classSize: 30, cohort: '2024', numClasses: 3, studyStartDate: startDate, studyEndDate: addDays(startDate, 105), credits: 3, totalPeriods: 15 },
   ];
 
   useEffect(() => {
     if (!schoolId.trim()) return;
     loadCatalog(schoolId.trim());
-  }, [schoolId]);
+  }, [schoolId, scheduleRevision]);
 
   async function loadCatalog(code) {
     try {
-      const [roomsData, teachersData] = await Promise.all([
+      const [roomsData, subjectsData, periodsData, overviewData] = await Promise.all([
         api(`/rooms?schoolId=${encodeURIComponent(code)}`),
-        api(`/teacher-subjects?schoolId=${encodeURIComponent(code)}`)
+        api(`/subjects?schoolId=${encodeURIComponent(code)}`),
+        api(`/period-templates?schoolId=${encodeURIComponent(code)}`),
+        api(`/assignments?schoolId=${encodeURIComponent(code)}`).catch(() => null),
       ]);
-      setSavedRooms(Array.isArray(roomsData) ? roomsData : []);
-      setSavedTeachers(Array.isArray(teachersData) ? teachersData : []);
+      const roomsList = Array.isArray(roomsData) ? roomsData : [];
+      const subjectsList = Array.isArray(subjectsData) ? subjectsData : [];
+      const periodsList = Array.isArray(periodsData) ? periodsData : [];
+
+      setSavedRooms(roomsList);
+      setSavedSubjects(subjectsList);
+      setPeriodTemplates(periodsList);
+      setDepartmentStatuses(Array.isArray(overviewData?.departmentStatuses) ? overviewData.departmentStatuses : []);
+
+      if (overviewData?.semesterStartDate) {
+        setStartDate(overviewData.semesterStartDate);
+      }
+
+      const cachedMeta = readCachedMeta(code);
+      const restored = buildResultFromOverview(
+        overviewData,
+        periodsList,
+        code,
+        schoolName,
+        overviewData?.semesterStartDate || startDate,
+        cachedMeta
+      );
+      if (restored) {
+        setResult(restored);
+      }
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function handleClearDepartmentSchedule() {
-    if (!window.confirm(`Bạn có chắc chắn muốn XÓA TOÀN BỘ lịch đã xếp của khoa "${schoolName}" (${schoolId})?`)) {
-      return;
-    }
+  async function handleDispatch(departmentId = null) {
+    if (busy) return;
     setBusy(true);
     setError('');
     setInfoMessage('');
     try {
-      const res = await api(`/department-schedule?schoolId=${encodeURIComponent(schoolId.trim())}`, {
-        method: 'DELETE'
+      const res = await postJson('/assignments/dispatch', {
+        schoolId: schoolId.trim(),
+        departmentId,
       });
-      setResult(null);
-      setInfoMessage(res.message || 'Đã xóa toàn bộ lịch cũ của khoa!');
+      setInfoMessage(res.message);
+      await loadCatalog(schoolId.trim());
     } catch (err) {
       setError(err.message);
     } finally {
@@ -96,77 +187,40 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     }
   }
 
-  function toggleBusyDay(day) {
-    setVisitingForm(prev => {
-      const exists = prev.busyDaysOfWeek.includes(day);
-      return {
-        ...prev,
-        busyDaysOfWeek: exists ? prev.busyDaysOfWeek.filter(d => d !== day) : [...prev.busyDaysOfWeek, day]
-      };
-    });
-  }
-
-  function addVisitingAssignment() {
-    setVisitingForm(prev => ({
-      ...prev,
-      assignments: [...prev.assignments, { courseCode: '', courseName: '', cohort: '2024', classGroup: 'Lớp 02', sessionType: 'THEORY', studentCount: 60, requiredPeriods: 30 }]
-    }));
-  }
-
-  function removeVisitingAssignment(idx) {
-    if (visitingForm.assignments.length === 1) return;
-    setVisitingForm(prev => ({
-      ...prev,
-      assignments: prev.assignments.filter((_, i) => i !== idx)
-    }));
-  }
-
-  function updateVisitingAssignment(idx, field, value) {
-    setVisitingForm(prev => {
-      const next = [...prev.assignments];
-      next[idx] = { ...next[idx], [field]: value };
-      return { ...prev, assignments: next };
-    });
-  }
-
-  async function handleVisitingSubmit(e) {
-    e.preventDefault();
-    if (busy) return;
+  async function handleReopen(departmentId) {
+    if (busy || !departmentId) return;
+    setBusy(true);
     setError('');
     setInfoMessage('');
-
-    for (let i = 0; i < visitingForm.assignments.length; i++) {
-      const a = visitingForm.assignments[i];
-      if (a.sessionType === 'PRACTICE' && !partitionPracticePeriods(a.requiredPeriods)) {
-        setError(`Môn ${a.courseCode || i + 1}: Tổng tiết thực hành (${a.requiredPeriods}) không thể chia thành các buổi 3–4 tiết.`);
-        return;
-      }
-    }
-
-    setBusy(true);
     try {
-      const response = await api('/visiting-schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...visitingForm,
-          schoolId: schoolId.trim(),
-          schoolName: schoolName.trim(),
-          semesterStartDate: startDate,
-          assignments: visitingForm.assignments.map(a => ({
-            ...a,
-            studentCount: Number(a.studentCount),
-            requiredPeriods: Number(a.requiredPeriods)
-          }))
-        })
+      const res = await postJson('/assignments/reopen', {
+        schoolId: schoolId.trim(),
+        departmentId,
       });
-      setResult(response);
-      if (response.saved) {
-        setInfoMessage(response.message);
-        await loadCatalog(schoolId.trim());
-      } else {
-        setError(response.message || 'Chưa lưu lịch thỉnh giảng.');
-      }
+      setInfoMessage(res.message);
+      await loadCatalog(schoolId.trim());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleClearDepartmentSchedule() {
+    if (!window.confirm(`Xóa toàn bộ lịch đã xếp của "${schoolName}" (${schoolId})?`)) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setInfoMessage('');
+    try {
+      const res = await api(`/department-schedule?schoolId=${encodeURIComponent(schoolId.trim())}`, {
+        method: 'DELETE',
+      });
+      writeCachedMeta(null);
+      setResult(null);
+      setInfoMessage(res.message || 'Đã xóa toàn bộ lịch cũ của khoa.');
+      await loadCatalog(schoolId.trim());
     } catch (err) {
       setError(err.message);
     } finally {
@@ -191,8 +245,13 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     if (busy || exporting) return;
     try {
       validateSchool(schoolId, schoolName, startDate);
+      if (!periodTemplates.length) {
+        throw new Error('Chưa cấu hình khung giờ tiết học. Vui lòng thêm tiết ở trang Khung giờ tiết học.');
+      }
       validateFile(planFile, 'Kế hoạch mở lớp');
-      if (!savedRooms.length) throw new Error('Khoa chưa có phòng học nào. Vui lòng thêm phòng học ở trang Quản lý GV & Phòng.');
+      if (!savedRooms.length) {
+        throw new Error('Chưa có phòng học nào. Hãy thêm phòng ở trang Loại phòng & Phòng học.');
+      }
     } catch (err) {
       setError(err.message);
       return;
@@ -217,6 +276,29 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
 
       validateAutoResult(response);
       setResult(response);
+
+      const slotMetaByClassId = {};
+      for (const slot of response.scheduledClasses || []) {
+        if (slot.classId && !slotMetaByClassId[slot.classId]) {
+          slotMetaByClassId[slot.classId] = {
+            studentCount: slot.studentCount ?? null,
+            credits: slot.credits ?? null,
+            phaseNote: slot.phaseNote || '',
+            courseName: slot.courseName || '',
+          };
+        }
+      }
+
+      writeCachedMeta({
+        schoolId: schoolId.trim(),
+        semesterStartDate: response.semesterStartDate,
+        message: response.message,
+        slotMetaByClassId,
+        unscheduledClasses: unscheduledClasses(response),
+        catalogWarnings: response.catalogWarnings || [],
+        unscheduledWarnings: response.unscheduledWarnings || [],
+      });
+      await loadCatalog(schoolId.trim());
       if (response.saved) onScheduled?.(response);
     } catch (err) {
       setError(err.message);
@@ -230,7 +312,16 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
     setExporting(true);
     setExportError('');
     try {
-      const { workbook, filename } = scheduledWorkbook(result);
+      const normalized = {
+        ...result,
+        periods: result.periods?.length ? result.periods : periodTemplates,
+        scheduledClasses: (result.scheduledClasses || []).map(slot => ({
+          ...slot,
+          teacherId: slot.teacherId || 'CHUA_PHAN_CONG',
+          teacherName: slot.teacherName || 'Chưa phân công',
+        })),
+      };
+      const { workbook, filename } = scheduledWorkbook(normalized);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
@@ -249,21 +340,42 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
   const saved = isSavedAutoResult(result);
   const unassigned = unscheduledClasses(result);
   const canExport = Boolean(result?.scheduledClasses?.length || unassigned.length);
+  const draftDepartmentsCount = departmentStatuses.filter(d => d.workflowStatus === 'DRAFT').length;
+
   const filteredSlots = (result?.scheduledClasses || []).filter(slot => {
     if (sessionFilter !== 'ALL' && slot.sessionType !== sessionFilter) return false;
     if (!filterText.trim()) return true;
     const q = filterText.toLocaleLowerCase('vi');
-    return `${slot.teacherId} ${slot.teacherName} ${slot.courseCode} ${slot.courseName} ${slot.room}`.toLocaleLowerCase('vi').includes(q);
+    return `${slot.teacherId || 'chưa phân công'} ${slot.teacherName || ''} ${slot.courseCode} ${slot.courseName} ${slot.room}`
+      .toLocaleLowerCase('vi')
+      .includes(q);
   });
+
+  const periodRangeText = periodTemplates.length
+    ? `${periodTemplates.length} tiết (${clock(periodTemplates[0].start)} – ${clock(periodTemplates[periodTemplates.length - 1].end)})`
+    : 'Chưa cấu hình khung giờ';
 
   return (
     <section className="standalone-panel import-panel auto-panel" aria-busy={busy}>
       <div className="panel-title">
         <div>
-          <h2>Xếp lịch giảng dạy của Khoa</h2>
-          <p className="muted-text">
-            Chính sách: rải đều toàn học kỳ, mỗi lớp học tối đa 1 ca/tuần; LT tối đa 3 tiết/ngày; TH chia 3–4 tiết cách 14/7 ngày.
-          </p>
+          <h2>Xếp lịch của Khoa</h2>
+        </div>
+        <div className="catalog-actions">
+          {onNavigatePeriods && (
+            <button type="button" className="button" onClick={onNavigatePeriods}>
+              <Clock3 size={16} /> Khung giờ ({periodRangeText})
+            </button>
+          )}
+          <button
+            type="button"
+            className="button"
+            style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+            disabled={busy}
+            onClick={handleClearDepartmentSchedule}
+          >
+            <Trash2 size={16} /> Xóa lịch cũ của Khoa
+          </button>
         </div>
         <button
           type="button"
@@ -277,113 +389,125 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
       </div>
 
       <form onSubmit={handleScheduleSubmit}>
-        <fieldset disabled={busy || exporting} className="import-fields">
-          <label>Mã Khoa <input value={schoolId} onChange={e => setSchoolId(e.target.value)} required maxLength={50} /></label>
-          <label>Tên Khoa / Đơn vị <input value={schoolName} onChange={e => setSchoolName(e.target.value)} required maxLength={255} /></label>
+        <fieldset disabled={busy || exporting} className="import-fields" style={{ gridTemplateColumns: 'minmax(0, 320px)' }}>
           <label>Ngày Thứ Hai của Tuần 1 <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></label>
 
           <div className="file-field" style={{ gridColumn: '1 / -1' }}>
-            <label htmlFor="auto-plan-file"><strong>File Danh sách mở lớp của Khoa (.xlsx)</strong></label>
+            <label htmlFor="auto-plan-file"><strong>File Kế hoạch mở lớp (.xlsx)</strong></label>
             <input id="auto-plan-file" type="file" accept=".xlsx" onChange={e => setPlanFile(e.target.files?.[0] || null)} required />
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.4rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '0.4rem', flexWrap: 'wrap' }}>
               <button type="button" className="button compact" onClick={downloadPlanTemplate}><Download size={15} /> Tải mẫu Mở lớp</button>
-              <small>Đang lưu sẵn trong hệ thống: <strong>{savedTeachers.length} giảng viên</strong> · <strong>{savedRooms.length} phòng học</strong></small>
+              <small><strong>{savedSubjects.length}</strong> môn · <strong>{savedRooms.length}</strong> phòng · Khung giờ: <strong>{periodRangeText}</strong></small>
             </div>
           </div>
         </fieldset>
 
         <div className="import-actions" style={{ marginTop: '0.75rem' }}>
           <button type="submit" className="button primary" disabled={busy || !planFile}>
-            <Upload size={16} /> {busy ? 'Đang xếp lịch khoa…' : 'Tải File Mở Lớp & Chạy Xếp Lịch Khoa'}
+            <Upload size={16} /> {busy ? 'Đang xếp lịch…' : 'Chạy xếp lịch'}
           </button>
         </div>
       </form>
 
       <FormError message={error} />
-      {infoMessage && <div role="status" className="info-banner" style={{ marginTop: '0.75rem' }}><CheckCircle2 size={18} /> {infoMessage}</div>}
+      {infoMessage && <div role="status" className="info-banner catalog-info" style={{ marginTop: '0.75rem' }}><CheckCircle2 size={18} /> {infoMessage}</div>}
 
-      {/* FORM THỈNH GIẢNG ĐA MÔN / ĐA LỚP */}
-      <details open style={{ marginTop: '1.5rem', border: '1px solid #bae6fd', borderRadius: '10px', padding: '0.85rem', background: '#f0f9ff' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#0369a1' }}>
-          <UserPlus size={17} style={{ verticalAlign: 'middle' }} /> Xếp lịch bổ sung cho Giảng viên Thỉnh giảng (Đảm nhận nhiều môn, nhiều lớp)
-        </summary>
-        <p className="muted-text" style={{ marginTop: '0.4rem' }}>
-          Thêm danh sách các môn học / lớp học phân công cho giảng viên thỉnh giảng. Hệ thống tự động xếp lịch rải đều, tránh trùng phòng và giờ bận.
-        </p>
-
-        <form onSubmit={handleVisitingSubmit} style={{ marginTop: '0.75rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.6rem', marginBottom: '0.75rem' }}>
-            <label>Mã GV thỉnh giảng <input required placeholder="VD: GV_TG01" value={visitingForm.teacherId} onChange={e => setVisitingForm({ ...visitingForm, teacherId: e.target.value })} /></label>
-            <label>Tên GV thỉnh giảng <input required placeholder="VD: PGS.TS Trần Văn B" value={visitingForm.teacherName} onChange={e => setVisitingForm({ ...visitingForm, teacherName: e.target.value })} /></label>
-            <label>Từ ngày học <input type="date" required value={visitingForm.studyStartDate} onChange={e => setVisitingForm({ ...visitingForm, studyStartDate: e.target.value })} /></label>
-            <label>Đến ngày học <input type="date" required value={visitingForm.studyEndDate} onChange={e => setVisitingForm({ ...visitingForm, studyEndDate: e.target.value })} /></label>
-          </div>
-
-          <h4>Danh sách các môn học / lớp học phân công cho giảng viên này</h4>
-          {visitingForm.assignments.map((asg, idx) => (
-            <div key={idx} className="visiting-assignment">
-              <label>Mã môn <input required placeholder="61FIT3DBS" value={asg.courseCode} onChange={e => updateVisitingAssignment(idx, 'courseCode', e.target.value)} /></label>
-              <label>Tên môn <input required placeholder="Cơ sở dữ liệu" value={asg.courseName} onChange={e => updateVisitingAssignment(idx, 'courseName', e.target.value)} /></label>
-              <label>Khóa <input required placeholder="2024" value={asg.cohort} onChange={e => updateVisitingAssignment(idx, 'cohort', e.target.value)} /></label>
-              <label>Lớp / Nhóm <input required placeholder="Lớp 01" value={asg.classGroup} onChange={e => updateVisitingAssignment(idx, 'classGroup', e.target.value)} /></label>
-              <label>
-                Loại
-                <select value={asg.sessionType} onChange={e => updateVisitingAssignment(idx, 'sessionType', e.target.value)}>
-                  <option value="THEORY">Lý thuyết</option>
-                  <option value="PRACTICE">Thực hành</option>
-                </select>
-              </label>
-              <label>Sĩ số <input type="number" min={1} required value={asg.studentCount} onChange={e => updateVisitingAssignment(idx, 'studentCount', e.target.value)} /></label>
-              <label>Tổng tiết <input type="number" min={1} required value={asg.requiredPeriods} onChange={e => updateVisitingAssignment(idx, 'requiredPeriods', e.target.value)} /></label>
-              <button type="button" className="icon-button" onClick={() => removeVisitingAssignment(idx)} disabled={visitingForm.assignments.length === 1} title="Xóa môn này"><Trash2 size={16} /></button>
-            </div>
-          ))}
-
-          <button type="button" className="button compact" onClick={addVisitingAssignment} style={{ marginBottom: '1rem' }}>
-            <Plus size={14} /> + Thêm môn / lớp khác cho GV thỉnh giảng này
-          </button>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-            <strong>Các thứ bận cố định trong tuần:</strong>
-            {[2, 3, 4, 5, 6, 7].map(d => (
-              <label key={d} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={visitingForm.busyDaysOfWeek.includes(d)}
-                  onChange={() => toggleBusyDay(d)}
-                />
-                Thứ {d}
-              </label>
-            ))}
-          </div>
-
-          <div style={{ marginTop: '0.6rem', display: 'flex', gap: '0.75rem', alignItems: 'end', flexWrap: 'wrap' }}>
-            <label style={{ flex: 1, minWidth: '260px' }}>
-              Hoặc ngày bận cụ thể (YYYY-MM-DD, cách nhau dấu phẩy)
-              <input
-                placeholder="VD: 2026-08-18, 2026-08-25"
-                value={visitingForm.busyDatesText}
-                onChange={e => setVisitingForm({ ...visitingForm, busyDatesText: e.target.value })}
-              />
-            </label>
-            <button type="submit" className="button primary" disabled={busy}>
-              <UserPlus size={16} /> Xếp phòng & Lưu toàn bộ lịch Thỉnh giảng
+      {/* BẢNG BÀN GIAO LỊCH VỀ TỪNG BỘ MÔN */}
+      {departmentStatuses.length > 0 && (
+        <div className="catalog-card" style={{ marginTop: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>
+              <Layers size={18} /> Bàn giao lịch về các Bộ môn
+            </h3>
+            <button
+              type="button"
+              className="button primary compact"
+              disabled={busy || draftDepartmentsCount === 0}
+              onClick={() => handleDispatch(null)}
+            >
+              <Send size={14} /> Chuyển tất cả về các Bộ môn ({draftDepartmentsCount})
             </button>
           </div>
-        </form>
-      </details>
+
+          <div className="table-scroll catalog-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Mã BM</th>
+                  <th>Bộ môn</th>
+                  <th>Trưởng bộ môn</th>
+                  <th>Số lớp đã xếp</th>
+                  <th>Tiến độ phân công</th>
+                  <th>Trạng thái bàn giao</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {departmentStatuses.map(dept => (
+                  <tr key={dept.departmentId}>
+                    <td><strong>{dept.departmentCode}</strong></td>
+                    <td>{dept.departmentName}</td>
+                    <td>
+                      {dept.headTeacherName
+                        ? `${dept.headTeacherName} (${dept.headTeacherId})`
+                        : <span className="muted-text">Chưa gán TBM</span>}
+                    </td>
+                    <td><strong>{dept.totalClasses}</strong> lớp</td>
+                    <td>{dept.assignedClasses}/{dept.totalClasses} lớp</td>
+                    <td>{statusBadge(dept.workflowStatus)}</td>
+                    <td>
+                      {dept.workflowStatus === 'DRAFT' && (
+                        <button
+                          type="button"
+                          className="button primary compact"
+                          disabled={busy}
+                          onClick={() => handleDispatch(dept.departmentId)}
+                        >
+                          <Send size={13} /> Chuyển về Bộ môn
+                        </button>
+                      )}
+                      {dept.workflowStatus === 'SUBMITTED_TO_ADMIN' && (
+                        <button
+                          type="button"
+                          className="button compact"
+                          disabled={busy}
+                          onClick={() => handleReopen(dept.departmentId)}
+                        >
+                          <RotateCcw size={13} /> Mở lại cho BM
+                        </button>
+                      )}
+                      {dept.workflowStatus === 'SENT_TO_DEPT' && (
+                        <span className="muted-text">Đang chờ TBM gửi lại</span>
+                      )}
+                      {dept.workflowStatus === 'EMPTY' && (
+                        <span className="muted-text">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {exportError && <p role="alert" className="error-text">{exportError}</p>}
       {result && (
         <div className="import-preview" style={{ marginTop: '1.5rem' }}>
           <div className="panel-title">
             <div>
-              <h2>{saved ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />} {saved ? 'Đã lưu các lớp xếp được' : 'Kết quả xếp lịch — chưa lưu'}</h2>
+              <h2>{saved ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />} {saved ? 'Đã lưu kết quả xếp lịch' : 'Kết quả xếp lịch — chưa lưu'}</h2>
               <p>{result.message}</p>
+              {result.catalogWarnings?.length > 0 && (
+                <div className="import-warning" style={{ marginTop: '0.5rem' }}>
+                  <AlertTriangle size={16} />
+                  <span>{result.catalogWarnings.join(' | ')}</span>
+                </div>
+              )}
               {result.unscheduledWarnings?.length > 0 && !unassigned.length && (
                 <div className="import-warning" style={{ marginTop: '0.5rem' }}>
                   <AlertTriangle size={16} />
-                  <span><strong>Cảnh báo môn/lớp còn thiếu giảng viên hoặc phòng:</strong> {result.unscheduledWarnings.join(' | ')}</span>
+                  <span>{result.unscheduledWarnings.join(' | ')}</span>
                 </div>
               )}
             </div>
@@ -396,19 +520,17 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
             <section aria-label="Các lớp chưa xếp được" style={{ marginTop: '1rem' }}>
               <div role="alert" className="import-warning">
                 <AlertTriangle size={18} />
-                <span>Còn <strong>{unassigned.length} lớp/nhóm chưa xếp được</strong>
-                  {unassigned.some(row => row.reasonCode === 'NO_TEACHER') && `, trong đó ${unassigned.filter(row => row.reasonCode === 'NO_TEACHER').length} lớp/nhóm thiếu giảng viên`}.
-                  {' '}Các lớp khác đã được tiếp tục xử lý. Danh sách này có trong file Excel kết quả.</span>
+                <span>Còn <strong>{unassigned.length} lớp/nhóm chưa xếp được</strong>.</span>
               </div>
               <div className="table-scroll">
                 <table>
-                  <thead><tr><th>Mã môn</th><th>Học phần</th><th>Khóa</th><th>Lớp/nhóm</th><th>Loại</th><th>Tiết còn thiếu</th><th>Lý do chưa xếp</th></tr></thead>
+                  <thead><tr><th>Mã môn</th><th>Học phần</th><th>Khóa</th><th>Lớp/nhóm</th><th>Loại</th><th>Tiết còn thiếu</th><th>Lý do</th></tr></thead>
                   <tbody>{unassigned.map((row, index) => (
                     <tr key={row.classId || index}>
                       <td>{row.courseCode}</td><td>{row.courseName || '—'}</td><td>{row.cohort}</td>
                       <td>{row.classGroup}</td><td>{row.sessionType === 'PRACTICE' ? 'TH' : 'LT'}</td>
                       <td>{row.missingPeriods}/{row.requiredPeriods}</td>
-                      <td>{row.reason || 'Chưa xếp đủ lịch cho lớp/nhóm.'}</td>
+                      <td>{row.reason || 'Chưa xếp đủ lịch.'}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -422,9 +544,9 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
               <input placeholder="Tìm theo giảng viên, môn học, phòng…" value={filterText} onChange={e => setFilterText(e.target.value)} />
             </label>
             <select value={sessionFilter} onChange={e => setSessionFilter(e.target.value)}>
-              <option value="ALL">Tất cả (Lý thuyết + Thực hành)</option>
-              <option value="THEORY">Lớp Lý thuyết</option>
-              <option value="PRACTICE">Lớp Thực hành</option>
+              <option value="ALL">Tất cả (LT + TH)</option>
+              <option value="THEORY">Lý thuyết</option>
+              <option value="PRACTICE">Thực hành</option>
             </select>
           </div>
 
@@ -432,28 +554,31 @@ export default function AutoSchedulePage({ semesterStart, onScheduled, onViewTea
             <table>
               <thead>
                 <tr>
-                  <th>Mã GV</th><th>Giảng viên</th><th>Mã môn</th><th>Học phần & Nhóm</th><th>Loại lớp</th><th>Sĩ số</th><th>Phòng học</th><th>Thứ</th><th>Tiết học</th><th>Ghi chú</th><th>Xem TKB</th>
+                  <th>Giảng viên</th><th>Mã môn</th><th>Học phần &amp; Nhóm</th><th>Loại</th><th>Sĩ số</th><th>Phòng</th><th>Thứ</th><th>Tiết</th><th>Ghi chú</th><th>Xem TKB</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredSlots.map((slot, index) => (
                   <tr key={index}>
-                    <td><strong>{slot.teacherId}</strong></td>
-                    <td>{slot.teacherName}</td>
+                    <td>
+                      {slot.teacherId
+                        ? <><strong>{slot.teacherId}</strong> · {slot.teacherName}</>
+                        : <span className="badge muted">Chưa phân công</span>}
+                    </td>
                     <td><code>{slot.courseCode}</code></td>
                     <td>{slot.courseName}</td>
                     <td><span className="badge" style={{ background: slot.sessionType === 'PRACTICE' ? '#0284c7' : '#16a34a', color: '#fff' }}>{slot.sessionType === 'PRACTICE' ? 'TH' : 'LT'}</span></td>
-                    <td>{slot.studentCount} SV</td>
+                    <td>{slot.studentCount != null ? `${slot.studentCount} SV` : '—'}</td>
                     <td><strong>{slot.room}</strong></td>
-                    <td>Thứ {slot.dayOfWeek}</td>
+                    <td>{slot.dayOfWeek === 8 ? 'CN' : `Thứ ${slot.dayOfWeek}`}</td>
                     <td>Tiết {slot.startPeriod}–{slot.startPeriod + slot.numPeriods - 1}</td>
                     <td><small className="muted-text">{slot.phaseNote || '—'}</small></td>
                     <td>
-                      {onViewTeacherSchedule && (
+                      {slot.teacherId && onViewTeacherSchedule ? (
                         <button type="button" className="button compact" disabled={!saved} onClick={() => onViewTeacherSchedule(slot.teacherId, firstActiveWeek(result.scheduledClasses, slot.teacherId))}>
                           <Calendar size={14} /> Xem TKB
                         </button>
-                      )}
+                      ) : '—'}
                     </td>
                   </tr>
                 ))}

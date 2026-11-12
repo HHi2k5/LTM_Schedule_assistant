@@ -21,4 +21,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, String> {
 
     @Query("SELECT DISTINCT t FROM Teacher t LEFT JOIN FETCH t.schools s LEFT JOIN FETCH s.periods LEFT JOIN FETCH s.courses")
     List<Teacher> findAllWithFullSchedule();
+
+    List<Teacher> findByDepartmentId(Long departmentId);
+    long countByDepartmentId(Long departmentId);
 }

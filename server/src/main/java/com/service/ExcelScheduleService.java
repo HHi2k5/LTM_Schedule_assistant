@@ -26,11 +26,12 @@ public class ExcelScheduleService {
     private final ScheduleService scheduleService;
     private final AutoScheduleService autoScheduleService;
     private final RoomRepository roomRepository;
-    private final com.repository.TeacherSubjectRepository teacherSubjectRepository; // <--- THÊM DÒNG NÀY VÀO ĐÂY
+    private final com.repository.SubjectRepository subjectRepository;
+    private final CatalogService catalogService;
     private final ScheduleWriteLock writeLock;
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{2,4})");
 
-
+    
     @Transactional(rollbackFor = Exception.class)
     public void importTeacherScheduleFromExcel(
             MultipartFile file,
@@ -159,9 +160,7 @@ public class ExcelScheduleService {
         scheduleService.saveOrUpdateSchoolSchedule(uploadRequest);
     }
 
-    /**
-     * Wrapper giữ tương thích nếu nơi khác gọi hàm 1 file
-     */
+   
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFromExcel(
             MultipartFile file,
@@ -237,11 +236,12 @@ public class ExcelScheduleService {
             }
         }
 
+        String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId.trim() : "PTIT";
         SchoolConfigDTO targetSchool = SchoolConfigDTO.builder()
-                .schoolId(schoolId != null ? schoolId : "PTIT")
+                .schoolId(resolvedSchoolId)
                 .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
                 .colorCode("#dc2626")
-                .periods(getDefault12PeriodsWithNoonSlot6())
+                .periods(catalogService.listPeriodTemplates(resolvedSchoolId))
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
@@ -255,9 +255,7 @@ public class ExcelScheduleService {
         return autoScheduleService.generateSchoolWideSchedule(request);
     }
 
-    /**
-     * 2. Xử lý trọn bộ 3 file Excel
-     */
+    
     @Transactional(rollbackFor = Exception.class)
     public AutoScheduleResponse autoScheduleFrom3Files(
             MultipartFile planFile,
@@ -274,18 +272,35 @@ public class ExcelScheduleService {
 
         String resolvedSchoolId = (schoolId != null && !schoolId.isBlank()) ? schoolId : "PTIT";
 
-        List< com.model.TeacherSubject > dbTeachers = teacherSubjectRepository.findBySchoolCodeOrderByTeacherIdAscCourseCodeAsc(resolvedSchoolId);
-        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile, teacherFile, dbTeachers);
+        // Admin chỉ xếp lớp vào phòng; giảng viên do trưởng bộ môn phân công sau nên không đọc danh sách giảng viên ở đây.
+        List<CourseDemandDTO> courseDemands = new WeeklyPlanExcelReader().read(planFile);
         if (courseDemands.isEmpty()) throw new IllegalArgumentException("Kế hoạch không có dòng hợp lệ.");
 
         writeLock.acquire();
+        catalogService.ensureRoomTypes(resolvedSchoolId);
         List<Room> availableRooms = parseAndSaveRoomExcel(roomFile, resolvedSchoolId);
+
+        // Loại phòng yêu cầu lấy từ danh mục môn; môn chưa có trong danh mục vẫn được xếp theo nhóm phòng LT/TH.
+        Map<String, com.model.Subject> catalog = new HashMap<>();
+        for (var subject : subjectRepository.findBySchoolCodeOrderByCourseCodeAsc(resolvedSchoolId)) {
+            catalog.put(subject.getCourseCode().toUpperCase(Locale.ROOT), subject);
+        }
+        Set<String> uncatalogued = new TreeSet<>();
+        for (CourseDemandDTO demand : courseDemands) {
+            var subject = catalog.get(demand.getCourseCode().toUpperCase(Locale.ROOT));
+            if (subject == null) {
+                uncatalogued.add(demand.getCourseCode());
+                continue;
+            }
+            demand.setTheoryRoomType(subject.getTheoryRoomType());
+            demand.setPracticeRoomType(subject.getPracticeRoomType());
+        }
 
         SchoolConfigDTO targetSchool = SchoolConfigDTO.builder()
                 .schoolId(resolvedSchoolId)
                 .schoolName(schoolName != null ? schoolName : "Học viện Công nghệ Bưu chính Viễn thông")
                 .colorCode("#dc2626")
-                .periods(getDefault12PeriodsWithNoonSlot6())
+                .periods(catalogService.listPeriodTemplates(resolvedSchoolId))
                 .build();
 
         SchoolWideScheduleRequest request = SchoolWideScheduleRequest.builder()
@@ -301,6 +316,9 @@ public class ExcelScheduleService {
         if (!result.isSaved()) {
             org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
         }
+        result.setCatalogWarnings(uncatalogued.isEmpty() ? List.of() : List.of(
+                "Các môn chưa có trong danh mục bộ môn nên chưa có trưởng bộ môn phân công giảng viên: "
+                        + String.join(", ", uncatalogued) + ". Thêm môn ở trang Bộ môn & Môn học."));
         return result;
     }
 
@@ -381,9 +399,7 @@ public class ExcelScheduleService {
         return periods.isEmpty() ? getDefault12PeriodsWithNoonSlot6() : periods;
     }
 
-    /**
-     * Cấu hình chuẩn mặc định (Khung 12h-13h gán là Tiết 6)
-     */
+   
     private List<PeriodTimeDTO> getDefault12PeriodsWithNoonSlot6() {
         return List.of(
                 new PeriodTimeDTO(1, LocalTime.of(7, 0), LocalTime.of(7, 50)),
@@ -401,7 +417,6 @@ public class ExcelScheduleService {
         );
     }
 
-    // ==============================================================================
 
     private List<Room> parseAndSaveRoomExcel(MultipartFile roomFile, String schoolCode) throws Exception {
         if (roomFile != null && !roomFile.isEmpty()) {
@@ -427,25 +442,19 @@ public class ExcelScheduleService {
                     if (roomCode.isBlank() || !roomCodes.add(roomCode.toUpperCase(Locale.ROOT)))
                         throw new IllegalArgumentException("Danh sách phòng dòng " + (i + 1) + ": mã phòng thiếu hoặc lặp.");
 
-                    boolean isLab = roomTypeRaw.contains("THỰC HÀNH")
+                    boolean projector = roomTypeRaw.contains("CHIẾU");
+                    boolean computerRoom = !projector && roomTypeRaw.contains("MÁY");
+                    boolean isLab = !projector && (roomTypeRaw.contains("THỰC HÀNH")
                             || roomTypeRaw.contains("LAB")
                             || roomTypeRaw.contains("PRACTICE")
-                            || roomTypeRaw.contains("MÁY")
-                            || roomCode.toUpperCase().contains("LAB");
+                            || computerRoom
+                            || roomCode.toUpperCase().contains("LAB"));
 
                     int capacity = parseIntSafe(capacityStr, isLab ? 30 : 60);
                     ScheduleValidation.text(roomCode, 50, "Dòng " + (i + 1) + ": mã phòng");
                     if (capacity < 1 || capacity > 1000) throw new IllegalArgumentException("Dòng " + (i + 1) + ": sức chứa phòng không hợp lệ.");
-                    String normalizedType;
-                    if (isLab) {
-                        normalizedType = "LAB_PRACTICE";
-                    } else if (capacity >= 120) {
-                        normalizedType = "THEORY_LARGE";
-                    } else if (capacity >= 80) {
-                        normalizedType = "THEORY_MEDIUM";
-                    } else {
-                        normalizedType = "THEORY_STANDARD";
-                    }
+                    // Mã loại phòng theo danh mục room_types.
+                    String normalizedType = projector ? "MAY_CHIEU" : computerRoom ? "PHONG_MAY" : isLab ? "THUC_HANH" : "LY_THUYET";
 
                     Room room = roomRepository.findBySchoolCodeAndRoomCodeIgnoreCase(schoolCode, roomCode)
                             .orElse(new Room());

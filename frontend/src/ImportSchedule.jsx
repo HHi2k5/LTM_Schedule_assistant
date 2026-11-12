@@ -5,7 +5,86 @@ import { buildUpload } from './scheduleImport';
 import { validateFile } from './workflow';
 import FormError from './FormError';
 
-export default function ImportSchedule({ teacherId, teacherName, semesterStart, onImported }) {
+const VISITING_DAYS = [[2, 'Thứ 2'], [3, 'Thứ 3'], [4, 'Thứ 4'], [5, 'Thứ 5'], [6, 'Thứ 6'], [7, 'Thứ 7']];
+
+export default function ImportSchedule({ user, teacherId, teacherName, semesterStart, onImported }) {
+  const isVisiting = user?.teacherType === 'THINH_GIANG';
+  const [busyDays, setBusyDays] = useState([]);
+  const [busyNote, setBusyNote] = useState('');
+  const [busyDateInput, setBusyDateInput] = useState('');
+  const [busyEntries, setBusyEntries] = useState([]);
+  const [busySaving, setBusySaving] = useState(false);
+  const [busyMsg, setBusyMsg] = useState('');
+
+  useEffect(() => {
+    if (!isVisiting || !teacherId) return;
+    api(`/assignments/visiting/${encodeURIComponent(teacherId)}?schoolId=PTIT`)
+      .then(data => {
+        const list = Array.isArray(data?.busyEntries) ? data.busyEntries : [];
+        setBusyEntries(list);
+        setBusyDays(list.filter(e => !e.specificDate && e.dayOfWeek).map(e => e.dayOfWeek));
+        setBusyNote(list.find(e => !e.specificDate && e.note)?.note || '');
+      })
+      .catch(() => {});
+  }, [isVisiting, teacherId]);
+
+  async function saveSelfBusyDays(e) {
+    e.preventDefault();
+    if (busySaving) return;
+    setBusySaving(true);
+    setBusyMsg('');
+    setError('');
+    try {
+      const updated = await api('/assignments/visiting/busy-days', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schoolId: 'PTIT', teacherId, busyDaysOfWeek: busyDays, note: busyNote }),
+      });
+      setBusyEntries(updated?.busyEntries || []);
+      setBusyMsg('Đã cập nhật thứ bận cố định cho Trưởng bộ môn.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusySaving(false);
+    }
+  }
+
+  async function addSelfBusyDate(e) {
+    e.preventDefault();
+    if (!busyDateInput || busySaving) return;
+    setBusySaving(true);
+    setBusyMsg('');
+    setError('');
+    try {
+      const updated = await api('/assignments/visiting/busy-dates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schoolId: 'PTIT', teacherId, dates: [busyDateInput], note: busyNote }),
+      });
+      setBusyEntries(updated?.busyEntries || []);
+      setBusyDateInput('');
+      setBusyMsg('Đã thêm ngày bận cụ thể.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusySaving(false);
+    }
+  }
+
+  async function deleteSelfBusyEntry(id) {
+    if (busySaving) return;
+    setBusySaving(true);
+    setError('');
+    try {
+      await api(`/assignments/visiting/busy/${id}`, { method: 'DELETE' });
+      setBusyEntries(prev => prev.filter(item => item.id !== id));
+      setBusyMsg('Đã xóa ngày bận.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusySaving(false);
+    }
+  }
   const [metadata, setMetadata] = useState({ 
     teacherId: teacherId || '', 
     teacherName: teacherName || '',
@@ -229,6 +308,54 @@ export default function ImportSchedule({ teacherId, teacherName, semesterStart, 
             <button className="button" disabled={busy} onClick={() => { setPreview(null); setConfirmed(false); }}>Hủy xem trước</button>
             <button className="button primary" disabled={!canSave} onClick={save}>{busy ? 'Đang tải lên và lưu…' : 'Xác nhận lưu và xem lịch'}</button>
           </div>
+        </div>
+      )}
+
+      {isVisiting && (
+        <div className="catalog-card" style={{ marginTop: '1.5rem', background: '#f0f9ff', borderColor: '#bae6fd' }}>
+          <h3>Khai báo ngày bận thỉnh giảng</h3>
+          {busyMsg && <p className="info-banner catalog-info"><CheckCircle2 size={16} /> {busyMsg}</p>}
+          <form onSubmit={saveSelfBusyDays} style={{ marginTop: '0.6rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '0.65rem' }}>
+              <strong>Thứ bận cố định:</strong>
+              {VISITING_DAYS.map(([dow, label]) => (
+                <label key={dow} style={{ display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={busyDays.includes(dow)}
+                    onChange={() => setBusyDays(prev => (prev.includes(dow) ? prev.filter(d => d !== dow) : [...prev, dow]))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'end', flexWrap: 'wrap' }}>
+              <label style={{ flex: 1, minWidth: '200px' }}>
+                Ghi chú lịch bận
+                <input maxLength={255} placeholder="VD: Dạy trường khác / công tác" value={busyNote} onChange={e => setBusyNote(e.target.value)} />
+              </label>
+              <button type="submit" className="button compact" disabled={busySaving}>Lưu thứ bận</button>
+            </div>
+          </form>
+
+          <form onSubmit={addSelfBusyDate} style={{ display: 'flex', gap: '0.6rem', alignItems: 'end', flexWrap: 'wrap', marginTop: '0.85rem' }}>
+            <label>
+              Thêm ngày bận cụ thể
+              <input type="date" value={busyDateInput} onChange={e => setBusyDateInput(e.target.value)} />
+            </label>
+            <button type="submit" className="button compact" disabled={!busyDateInput || busySaving}>Thêm ngày bận</button>
+          </form>
+
+          {busyEntries.filter(e => e.specificDate).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '0.7rem' }}>
+              {busyEntries.filter(e => e.specificDate).map(e => (
+                <span key={e.id} className="badge" style={{ background: '#fee2e2', color: '#991b1b', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                  {dateLabel(e.specificDate)}{e.note ? ` · ${e.note}` : ''}
+                  <button type="button" onClick={() => deleteSelfBusyEntry(e.id)} style={{ border: 0, background: 'transparent', padding: 0, color: 'inherit' }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </section>

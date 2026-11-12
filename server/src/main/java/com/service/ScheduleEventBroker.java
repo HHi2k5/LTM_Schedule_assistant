@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** Only invalidation notices are streamed; calendar data still uses the authorised week API. */
+
 @Component
 public class ScheduleEventBroker {
     private final Set<Connection> connections = ConcurrentHashMap.newKeySet();
@@ -50,7 +50,8 @@ public class ScheduleEventBroker {
 
     public synchronized SseEmitter subscribe(AccountPrincipal account, Instant tokenExpiresAt) {
         if (stopping) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Máy chủ đang khởi động lại.");
-        if (account == null || !("TEACHER".equals(account.role()) || "ADMIN".equals(account.role()))) {
+        if (account == null || !("TEACHER".equals(account.role()) || "ADMIN".equals(account.role())
+                || "DEPT_HEAD".equals(account.role()))) {
             throw new org.springframework.security.access.AccessDeniedException("Bạn không có quyền nhận cập nhật lịch.");
         }
         long lifetime = Math.min(Duration.ofMinutes(5).toMillis(), Duration.between(clock.instant(), tokenExpiresAt).toMillis());
@@ -73,7 +74,9 @@ public class ScheduleEventBroker {
     public void publish(Set<String> teacherIds) {
         if (teacherIds.isEmpty()) return;
         for (var connection : connections) {
-            if ("ADMIN".equals(connection.account.role()) || teacherIds.contains(connection.account.teacherId())) {
+            // Trưởng bộ môn cũng nhận mọi tín hiệu đổi lịch để trang phân công luôn mới (chỉ là thông báo tải lại).
+            if ("ADMIN".equals(connection.account.role()) || "DEPT_HEAD".equals(connection.account.role())
+                    || teacherIds.contains(connection.account.teacherId())) {
                 connection.revision.incrementAndGet();
                 requestDelivery(connection);
             }

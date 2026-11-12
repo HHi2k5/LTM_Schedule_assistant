@@ -30,6 +30,29 @@ public class ScheduleService {
     private final com.security.ScheduleAccess scheduleAccess;
     private final ScheduleWriteLock writeLock;
     private final ScheduleChangePublisher scheduleChanges;
+    private final com.repository.SubjectRepository subjectRepository;
+    private final CatalogService catalogService;
+
+    /** Màu cố định của các lớp đã có phòng nhưng chưa phân công giảng viên. */
+    static final String UNASSIGNED_COLOR = "#94a3b8";
+
+    /** Giảng viên hệ thống giữ các lớp chưa phân công; không có tài khoản đăng nhập. */
+    @Transactional
+    public Teacher ensureUnassignedTeacher(LocalDate semesterStart) {
+        return teacherRepository.findById(Teacher.UNASSIGNED_ID).orElseGet(() -> teacherRepository.save(Teacher.builder()
+                .teacherId(Teacher.UNASSIGNED_ID).fullName(Teacher.UNASSIGNED_NAME).role(Teacher.ROLE_SYSTEM)
+                .semesterStartDate(semesterStart != null ? semesterStart : LocalDate.of(2026, 8, 10)).build()));
+    }
+
+    /** Admin và chính giảng viên xem được lịch; trưởng bộ môn xem được lịch giảng viên trong bộ môn mình. */
+    private void requireReadAccess(String teacherId) {
+        Long headDepartment = scheduleAccess.headDepartmentId();
+        if (headDepartment != null && !scheduleAccess.isSelf(teacherId)) {
+            Teacher target = teacherRepository.findById(teacherId).orElse(null);
+            if (target != null && headDepartment.equals(target.getDepartmentId())) return;
+        }
+        scheduleAccess.requireTeacherAccess(teacherId);
+    }
 
     // Bảng 30 màu sắc tương phản rõ rệt để mỗi giảng viên (cơ hữu và thỉnh giảng) có 1 màu riêng trên lịch toàn khoa
     private static final String[] TEACHER_PALETTE = {
@@ -112,6 +135,7 @@ public class ScheduleService {
                         .scheduleParentId(dto.getScheduleParentId())
                         .sessionType(dto.getSessionType())
                         .planSnapshot(dto.getPlanSnapshot())
+                        .workflowStatus(dto.getWorkflowStatus())
                         .courseName(dto.getCourseName())
                         .classroom(dto.getRoom())
                         .dayOfWeek(dto.getDayOfWeek())
@@ -134,21 +158,23 @@ public class ScheduleService {
                                        Map<String, String> names) {
         writeLock.acquire();
         String schoolCode = request.getTargetSchool().getSchoolId();
+        if (generated.containsKey(Teacher.UNASSIGNED_ID)) ensureUnassignedTeacher(request.getSemesterStartDate());
         var existing = teacherRepository.findAllWithFullSchedule();
         var retained = new LinkedHashMap<String, List<TeachingCourseDTO>>();
+        var seenCourses = new HashSet<Long>();
         for (var teacher : existing) for (var school : teacher.getSchools()) {
             if (!schoolCode.equals(school.getSchoolCode())) continue;
             boolean managed = school.getCourses().stream().anyMatch(c -> "WEEKLY_AUTO".equals(c.getSourceType()));
             if (!managed && !generated.containsKey(teacher.getTeacherId())) continue;
-            var rows = new ArrayList<TeachingCourseDTO>();
+            var rows = retained.computeIfAbsent(teacher.getTeacherId(), ignored -> new ArrayList<>());
             for (var c : school.getCourses()) if (!"WEEKLY_AUTO".equals(c.getSourceType())) {
+                if (c.getId() != null && !seenCourses.add(c.getId())) continue;
                 rows.add(TeachingCourseDTO.builder().courseCode(c.getCourseCode()).courseName(c.getCourseName())
                         .room(c.getClassroom()).dayOfWeek(c.getDayOfWeek()).startPeriod(c.getStartPeriod())
                         .numPeriods(c.getNumPeriods()).weekSchedule(c.getWeekSchedule()).customStartTime(c.getCustomStartTime())
                         .customEndTime(c.getCustomEndTime()).sourceType(c.getSourceType()).scheduleClassId(c.getScheduleClassId())
-                        .scheduleParentId(c.getScheduleParentId()).sessionType(c.getSessionType()).planSnapshot(c.getPlanSnapshot()).build());
+                        .scheduleParentId(c.getScheduleParentId()).sessionType(c.getSessionType()).planSnapshot(c.getPlanSnapshot()).workflowStatus(c.getWorkflowStatus()).build());
             }
-            retained.put(teacher.getTeacherId(), rows);
             names.putIfAbsent(teacher.getTeacherId(), teacher.getFullName());
         }
         generated.forEach((id, rows) -> retained.computeIfAbsent(id, ignored -> new ArrayList<>()).addAll(rows));
@@ -286,9 +312,8 @@ public class ScheduleService {
     @Transactional(readOnly = true)
     public WeekScheduleResponse getWeeklySchedule(String teacherId, int weekIndex) {
         boolean isAllDepartment = "ALL".equalsIgnoreCase(teacherId) || "KHOA".equalsIgnoreCase(teacherId) || teacherId == null || teacherId.isBlank();
-        if (!isAllDepartment) {
-            scheduleAccess.requireTeacherAccess(teacherId);
-        }
+        if (isAllDepartment) scheduleAccess.requireAdmin();
+        else requireReadAccess(teacherId);
         if (weekIndex < 1 || weekIndex > 100) throw new IllegalArgumentException("Tuần phải từ 1 đến 100.");
 
         List<Teacher> teachers;
@@ -320,21 +345,24 @@ public class ScheduleService {
         int colorCounter = 0;
         for (Teacher t : teachers) {
             boolean hasCourses = t.getSchools() != null && t.getSchools().stream()
-                    .anyMatch(s -> s.getCourses() != null && !s.getCourses().isEmpty());
-            if (hasCourses) {
+                    .anyMatch(s -> s.getCourses() != null && s.getCourses().stream()
+                            .anyMatch(c -> !isAllDepartment || isDepartmentCourse(c)));
+            if (hasCourses && !t.unassignedPool()) {
                 teacherColorMap.put(t.getTeacherId(), TEACHER_PALETTE[colorCounter % TEACHER_PALETTE.length]);
                 colorCounter++;
             }
         }
 
         for (Teacher teacher : teachers) {
-            String teacherDistinctColor = teacherColorMap.getOrDefault(
+            boolean unassigned = teacher.unassignedPool();
+            String teacherDistinctColor = unassigned ? UNASSIGNED_COLOR : teacherColorMap.getOrDefault(
                     teacher.getTeacherId(),
                     pickTeacherColor(teacher.getTeacherId(), -1)
             );
             if (teacher.getSchools() == null) continue;
 
             for (School school : teacher.getSchools()) {
+                if (isAllDepartment && !hasDepartmentCourses(school)) continue;
                 // Lịch toàn khoa: mỗi giảng viên một màu. Lịch cá nhân: trường tự nhập dùng màu giảng viên đã chọn khi nhập.
                 String lessonColor = isAllDepartment || hasDepartmentCourses(school)
                         ? teacherDistinctColor
@@ -351,6 +379,7 @@ public class ScheduleService {
 
                 if (school.getCourses() == null) continue;
                 for (TeachingCourse course : school.getCourses()) {
+                    if (isAllDepartment && !isDepartmentCourse(course)) continue;
                     String weekStr = course.getWeekSchedule();
                     if (weekStr == null || weekStr.isBlank()) continue;
 
@@ -370,18 +399,23 @@ public class ScheduleService {
                             int offsetDays = (course.getDayOfWeek() == 8) ? 6 : (course.getDayOfWeek() - 2);
                             LocalDate classDate = targetMonday.plusDays(offsetDays);
 
-                            Object uniqueKey = course.getId() != null ? course.getId() : course;
+                            Object uniqueKey = teacher.getTeacherId() + "|" + school.getSchoolCode() + "|"
+                                    + course.getCourseCode() + "|" + course.getCourseName() + "|"
+                                    + course.getClassroom() + "|" + course.getDayOfWeek() + "|"
+                                    + course.getStartPeriod() + "|" + course.getNumPeriods() + "|"
+                                    + course.getWeekSchedule();
 
                             if (!uniqueLessonCheck.contains(uniqueKey)) {
                                 uniqueLessonCheck.add(uniqueKey);
 
-                                String teacherLabel = teacher.getFullName() != null && !teacher.getFullName().isBlank()
+                                String teacherLabel = unassigned ? Teacher.UNASSIGNED_NAME
+                                        : teacher.getFullName() != null && !teacher.getFullName().isBlank()
                                         ? teacher.getFullName() + " (" + teacher.getTeacherId() + ")"
                                         : teacher.getTeacherId();
 
-                                String displayCourse = isAllDepartment
-                                        ? "[" + teacher.getTeacherId() + " - " + teacher.getFullName() + "] " + course.getCourseName()
-                                        : course.getCourseName();
+                                String displayCourse = !isAllDepartment ? course.getCourseName()
+                                        : unassigned ? "[" + Teacher.UNASSIGNED_NAME + "] " + course.getCourseName()
+                                        : "[" + teacher.getTeacherId() + " - " + teacher.getFullName() + "] " + course.getCourseName();
 
                                 weeklyLessons.add(LessonSlot.builder()
                                         .schoolId(school.getSchoolCode())
@@ -424,6 +458,7 @@ public class ScheduleService {
     public AutoScheduleResponse scheduleVisitingTeacher(VisitingTeacherRequest req) {
         writeLock.acquire();
         String schoolCode = (req.getSchoolId() == null || req.getSchoolId().isBlank()) ? "PTIT" : req.getSchoolId().trim();
+        List<PeriodTimeDTO> configuredPeriods = catalogService.listPeriodTemplates(schoolCode);
         String schoolName = (req.getSchoolName() == null || req.getSchoolName().isBlank()) ? "Khoa Công nghệ Thông tin - PTIT" : req.getSchoolName().trim();
         LocalDate semesterStart = req.getSemesterStartDate() != null ? req.getSemesterStartDate() : LocalDate.of(2026, 8, 10);
         ScheduleValidation.monday(semesterStart);
@@ -437,6 +472,32 @@ public class ScheduleService {
 
         String teacherId = req.getTeacherId().trim().toUpperCase(Locale.ROOT);
         String teacherName = req.getTeacherName().trim();
+        if (Teacher.UNASSIGNED_ID.equals(teacherId)) throw new IllegalArgumentException("Mã giảng viên này được hệ thống sử dụng.");
+
+        // Trưởng bộ môn chỉ xếp thỉnh giảng cho môn của bộ môn mình; mọi môn của một giảng viên phải cùng bộ môn.
+        Long headDepartment = scheduleAccess.headDepartmentId();
+        Map<String, Subject> catalog = new HashMap<>();
+        for (Subject subject : subjectRepository.findBySchoolCodeOrderByCourseCodeAsc(schoolCode)) {
+            catalog.put(subject.getCourseCode().toUpperCase(Locale.ROOT), subject);
+        }
+        Long departmentId = headDepartment;
+        for (var assignment : req.getAssignments()) {
+            if (assignment == null || assignment.getCourseCode() == null || assignment.getCourseCode().isBlank()) {
+                throw new IllegalArgumentException("Vui lòng chọn môn học cho từng dòng phân công thỉnh giảng.");
+            }
+            String code = assignment.getCourseCode().trim().toUpperCase(Locale.ROOT);
+            Subject subject = catalog.get(code);
+            if (subject == null) {
+                throw new IllegalArgumentException("Môn " + code + " chưa có trong danh mục môn học của bộ môn.");
+            }
+            if (departmentId == null) departmentId = subject.getDepartmentId();
+            if (!departmentId.equals(subject.getDepartmentId())) {
+                throw new IllegalArgumentException(headDepartment != null
+                        ? "Môn " + code + " không thuộc bộ môn của bạn."
+                        : "Các môn của một giảng viên thỉnh giảng phải thuộc cùng một bộ môn.");
+            }
+        }
+        final Long visitingDepartment = departmentId;
 
         LocalDate studyStart = req.getStudyStartDate() != null ? req.getStudyStartDate() : semesterStart;
         LocalDate studyEnd = req.getStudyEndDate() != null ? req.getStudyEndDate() : semesterStart.plusDays(105);
@@ -464,9 +525,22 @@ public class ScheduleService {
                     .username(teacherId)
                     .password(passwordEncoder.encode(defaultPwd))
                     .role("TEACHER")
+                    .teacherType(Teacher.TYPE_VISITING)
+                    .departmentId(visitingDepartment)
                     .semesterStartDate(semesterStart)
                     .build();
         } else {
+            if (Teacher.ROLE_ADMIN.equals(visitingTeacher.getRole())) {
+                throw new IllegalArgumentException("Mã " + teacherId + " là tài khoản quản trị, không thể xếp lịch thỉnh giảng.");
+            }
+            if (visitingTeacher.getDepartmentId() != null && !visitingTeacher.getDepartmentId().equals(visitingDepartment)) {
+                throw new IllegalArgumentException("Giảng viên " + teacherId + " đang thuộc bộ môn khác.");
+            }
+            if (visitingTeacher.getDepartmentId() == null) {
+                // Hồ sơ chưa thuộc bộ môn nào: nhận vào bộ môn với loại thỉnh giảng.
+                visitingTeacher.setDepartmentId(visitingDepartment);
+                visitingTeacher.setTeacherType(Teacher.TYPE_VISITING);
+            }
             visitingTeacher.setFullName(teacherName);
             if (visitingTeacher.getUsername() == null || visitingTeacher.getUsername().isBlank()) {
                 visitingTeacher.setUsername(teacherId);
@@ -488,9 +562,11 @@ public class ScheduleService {
                         .courses(new HashSet<>())
                         .build());
 
-        if (visitingSchool.getPeriods() == null || visitingSchool.getPeriods().isEmpty()) {
-            visitingSchool.setPeriods(new HashSet<>());
-            for (PeriodTimeDTO pt : default12Periods()) {
+        if (visitingSchool.getPeriods() == null) visitingSchool.setPeriods(new HashSet<>());
+        if (visitingSchool.getPeriods().isEmpty()
+                || (visitingSchool.getCourses() != null && visitingSchool.getCourses().stream().allMatch(ScheduleService::isDepartmentCourse))) {
+            visitingSchool.getPeriods().clear();
+            for (PeriodTimeDTO pt : configuredPeriods) {
                 visitingSchool.getPeriods().add(SchoolPeriod.builder()
                         .periodNumber(pt.getPeriod())
                         .startTime(pt.getStart())
@@ -509,7 +585,8 @@ public class ScheduleService {
 
         for (var assignment : req.getAssignments()) {
             String courseCode = assignment.getCourseCode().trim().toUpperCase(Locale.ROOT);
-            String courseName = assignment.getCourseName().trim();
+            Subject catalogSubject = catalog.get(courseCode);
+            String courseName = catalogSubject.getCourseName();
             String cohort = (assignment.getCohort() == null || assignment.getCohort().isBlank()) ? "2024" : assignment.getCohort().trim();
             String classGroup = (assignment.getClassGroup() == null || assignment.getClassGroup().isBlank()) ? "Lớp TG-01" : assignment.getClassGroup().trim();
             boolean isPractice = "PRACTICE".equalsIgnoreCase(assignment.getSessionType()) || "TH".equalsIgnoreCase(assignment.getSessionType());
@@ -532,17 +609,22 @@ public class ScheduleService {
             ts.setPracticeWeight(isPractice ? 1 : 0);
             teacherSubjectRepository.save(ts);
 
+            // Cùng quy tắc với xếp lịch khoa: môn yêu cầu loại phòng thì chỉ dùng phòng đúng loại đó.
+            String requiredRoomType = isPractice ? catalogSubject.getPracticeRoomType() : catalogSubject.getTheoryRoomType();
+            boolean typed = requiredRoomType != null && !requiredRoomType.isBlank();
             List<Room> candidateRooms = allCandidateRooms.stream()
-                    .filter(r -> r.isLab() == isPractice && r.getCapacity() >= studentCount)
+                    .filter(r -> (typed ? requiredRoomType.equalsIgnoreCase(r.getRoomType()) : r.isLab() == isPractice)
+                            && r.getCapacity() >= studentCount)
                     .toList();
             if (candidateRooms.isEmpty()) {
-                throw new IllegalArgumentException("Không có phòng " + (isPractice ? "Thực hành (LAB)" : "Lý thuyết") + " nào đủ sức chứa cho môn " + courseCode + ".");
+                throw new IllegalArgumentException("Không có phòng " + (typed ? "loại " + requiredRoomType
+                        : isPractice ? "Thực hành" : "Lý thuyết") + " nào đủ sức chứa cho môn " + courseCode + ".");
             }
 
             List<Teacher> allTeachers = teacherRepository.findAllWithFullSchedule();
             int startWeek = Math.max(1, (int) (ChronoUnit.DAYS.between(semesterStart, studyStart) / 7) + 1);
             int endWeek = Math.min(100, (int) (ChronoUnit.DAYS.between(semesterStart, studyEnd) / 7) + 1);
-            Map<Integer, PeriodTimeDTO> periodMap = ScheduleValidation.periods(default12Periods());
+            Map<Integer, PeriodTimeDTO> periodMap = ScheduleValidation.periods(configuredPeriods);
 
             List<List<Integer>> sessionPlans = isPractice
                     ? SchedulingPolicy.practicePartitions(requiredPeriods)
@@ -585,7 +667,12 @@ public class ScheduleService {
                                 if (!SchedulingPolicy.satisfiesPracticeGap(groupDates, currentDate, minGap)) continue;
                             }
 
-                            var candidateStartPeriods = SchedulingPolicy.candidateStartPeriods(List.of(1, 4, 5, 7, 10), countP);
+                            var rawStarts = new LinkedHashSet<Integer>();
+                            for (int p : List.of(1, 4, 5, 7, 10)) {
+                                if (periodMap.containsKey(p)) rawStarts.add(p);
+                            }
+                            rawStarts.addAll(periodMap.keySet());
+                            var candidateStartPeriods = SchedulingPolicy.candidateStartPeriods(periodMap, rawStarts, countP);
 
                             boolean placedOnDay = false;
                             for (int startP : candidateStartPeriods) {
@@ -704,6 +791,30 @@ public class ScheduleService {
                 slot.setPhaseNote("Xếp lịch thỉnh giảng · " + gapNote);
                 allScheduledSlots.add(slot);
 
+                int endP = slot.getStartPeriod() + slot.getNumPeriods() - 1;
+                LocalTime slotStart = periodMap.get(slot.getStartPeriod()).getStart();
+                LocalTime slotEnd = periodMap.get(endP).getEnd();
+                LocalTime schoolStart = visitingSchool.getPeriods().stream()
+                        .filter(p -> p.getPeriodNumber() == slot.getStartPeriod())
+                        .map(SchoolPeriod::getStartTime).findFirst().orElse(null);
+                LocalTime schoolEnd = visitingSchool.getPeriods().stream()
+                        .filter(p -> p.getPeriodNumber() == endP)
+                        .map(SchoolPeriod::getEndTime).findFirst().orElse(null);
+                boolean sameHours = Objects.equals(slotStart, schoolStart) && Objects.equals(slotEnd, schoolEnd);
+                for (int pNum = slot.getStartPeriod(); pNum <= endP; pNum++) {
+                    int targetP = pNum;
+                    boolean hasPeriod = visitingSchool.getPeriods().stream().anyMatch(p -> p.getPeriodNumber() == targetP);
+                    if (!hasPeriod && periodMap.containsKey(targetP)) {
+                        PeriodTimeDTO pt = periodMap.get(targetP);
+                        visitingSchool.getPeriods().add(SchoolPeriod.builder()
+                                .periodNumber(pt.getPeriod())
+                                .startTime(pt.getStart())
+                                .endTime(pt.getEnd())
+                                .school(visitingSchool)
+                                .build());
+                    }
+                }
+
                 visitingSchool.getCourses().add(TeachingCourse.builder()
                         .courseCode(slot.getCourseCode())
                         .courseName(slot.getCourseName())
@@ -715,6 +826,8 @@ public class ScheduleService {
                         .sessionType(slot.getSessionType())
                         .scheduleClassId(classUnitId)
                         .sourceType("VISITING_AUTO")
+                        .customStartTime(sameHours ? null : slotStart)
+                        .customEndTime(sameHours ? null : slotEnd)
                         .school(visitingSchool)
                         .build());
             }
@@ -727,7 +840,7 @@ public class ScheduleService {
                 .schoolId(schoolCode)
                 .schoolName(schoolName)
                 .semesterStartDate(semesterStart)
-                .periods(default12Periods())
+                .periods(configuredPeriods)
                 .saved(true)
                 .status("SUCCESS")
                 .message("Đã xếp lịch thành công cho toàn bộ các môn/lớp của giảng viên thỉnh giảng " + teacherName + " (" + teacherId + ").")

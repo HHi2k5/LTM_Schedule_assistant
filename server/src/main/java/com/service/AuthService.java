@@ -28,6 +28,7 @@ public class AuthService {
     private static final int MAX_TEACHER_ID_ATTEMPTS = 100;
 
     private final TeacherRepository teacherRepository;
+    private final com.repository.DepartmentRepository departmentRepository;
     private final TokenService tokens;
     private final PasswordEncoder passwords;
     private final ScheduleWriteLock writeLock;
@@ -117,27 +118,27 @@ public class AuthService {
             throw new BadCredentialsException("Sai tên đăng nhập hoặc mật khẩu!");
         }
         if (legacy) { teacher.setPassword(passwords.encode(req.getPassword())); teacherRepository.save(teacher); }
-        if (!"TEACHER".equals(teacher.getRole()) && !"ADMIN".equals(teacher.getRole())) {
+        if (!"TEACHER".equals(teacher.getRole()) && !"ADMIN".equals(teacher.getRole())
+                && !"DEPT_HEAD".equals(teacher.getRole())) {
             throw new BadCredentialsException("Tài khoản chưa được cấp vai trò hợp lệ.");
         }
 
-        return AuthResponse.builder()
-                .accessToken(tokens.issue(teacher.getTeacherId()))
-                .status("SUCCESS")
-                .message("Đăng nhập thành công!")
-                .teacherId(teacher.getTeacherId())
-                .fullName(teacher.getFullName())
-                .username(teacher.getUsername())
-                .role(teacher.getRole())
-                .semesterStartDate(teacher.getSemesterStartDate().toString())
-                .build();
+        return profile(teacher).accessToken(tokens.issue(teacher.getTeacherId()))
+                .message("Đăng nhập thành công!").build();
     }
 
     public AuthResponse current(AccountPrincipal account) {
-        Teacher teacher = teacherRepository.findById(account.teacherId()).orElseThrow();
+        return profile(teacherRepository.findById(account.teacherId()).orElseThrow()).build();
+    }
+
+    private AuthResponse.AuthResponseBuilder profile(Teacher teacher) {
+        String departmentName = teacher.getDepartmentId() == null ? null
+                : departmentRepository.findById(teacher.getDepartmentId()).map(com.model.Department::getName).orElse(null);
         return AuthResponse.builder().status("SUCCESS").teacherId(teacher.getTeacherId())
                 .fullName(teacher.getFullName()).username(teacher.getUsername()).role(teacher.getRole())
-                .semesterStartDate(teacher.getSemesterStartDate().toString()).build();
+                .semesterStartDate(teacher.getSemesterStartDate().toString())
+                .departmentId(teacher.getDepartmentId()).departmentName(departmentName)
+                .teacherType(teacher.effectiveType());
     }
 
     @Transactional

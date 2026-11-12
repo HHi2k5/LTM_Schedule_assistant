@@ -218,7 +218,7 @@ public class AutoScheduleService {
         var rawStarts = new LinkedHashSet<Integer>();
         if (fixedStart != null) rawStarts.add(fixedStart);
         for (int start : DEFAULT_START_PERIODS) rawStarts.add(start);
-        var starts = SchedulingPolicy.candidateStartPeriods(rawStarts, count);
+        var starts = SchedulingPolicy.candidateStartPeriods(periods, rawStarts, count);
 
         for (int day : days) for (int start : starts) {
             if (!SchedulingPolicy.isContiguousValidSlot(periods, start, count)) continue;

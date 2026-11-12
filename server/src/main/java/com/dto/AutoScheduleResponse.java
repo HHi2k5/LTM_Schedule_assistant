@@ -25,5 +25,6 @@ public class AutoScheduleResponse {
     private int totalRoomsAvailable;
     private int totalClassesScheduled;
     private List<GeneratedClassSlot> scheduledClasses;
+    private List<String> catalogWarnings;     // Môn trong kế hoạch chưa có trong danh mục bộ môn
     private List<String> unscheduledWarnings; // Cảnh báo nếu hết phòng hoặc kín lịch
 }

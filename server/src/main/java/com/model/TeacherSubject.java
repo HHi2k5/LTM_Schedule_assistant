@@ -48,4 +48,16 @@ public class TeacherSubject {
     @Column(name = "practice_weight", nullable = false)
     @Builder.Default
     private Integer practiceWeight = 1;
+
+    public static final String KIND_PRIMARY = "PRIMARY";
+    public static final String KIND_SUBSTITUTE = "SUBSTITUTE";
+
+
+    @Column(name = "assignment_kind", columnDefinition = "VARCHAR(20) DEFAULT 'PRIMARY'")
+    @Builder.Default
+    private String assignmentKind = KIND_PRIMARY;
+
+    public boolean substitute() {
+        return KIND_SUBSTITUTE.equals(assignmentKind);
+    }
 }

@@ -23,6 +23,11 @@ public class TeacherAccountDTO {
     private Integer theoryWeight;
     private Integer practiceWeight;
 
+    private Long departmentId;        // Bộ môn của giảng viên
+    private String departmentName;
+    private String teacherType;       // TRUONG_BO_MON, GIANG_VIEN, TRO_GIANG, THINH_GIANG
+    private String role;
+
     // Danh sách các môn học mà giảng viên này phụ trách (1 GV dạy nhiều môn)
     private List<SubjectAssignment> subjects;
 
@@ -37,5 +42,6 @@ public class TeacherAccountDTO {
         private String cohort;
         private Integer theoryWeight;
         private Integer practiceWeight;
+        private String kind;          // PRIMARY (phụ trách) hoặc SUBSTITUTE (dạy thay)
     }
 }
